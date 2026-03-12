@@ -198,11 +198,11 @@ export class Game {
     this.loop();
   }
 
-  private startRun(): void {
+  private async startRun(): Promise<void> {
     this.overlay.hideTitle();
     this.overlay.hideGameOver();
     this.hud.show();
-    this.audio.startMusic();
+    await this.audio.startMusic();
     this.state.resetRun();
 
     if (this.input.isTouchDevice) {
