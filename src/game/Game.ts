@@ -21,6 +21,8 @@ import { Radar } from '../ui/Radar';
 import { AudioManager } from '../audio/AudioManager';
 import { AssetLoader } from '../assets/AssetLoader';
 
+declare const OpenGameSDK: any;
+
 export class Game {
   private renderer!: THREE.WebGLRenderer;
   private composer!: EffectComposer;
@@ -42,6 +44,7 @@ export class Game {
   private radar!: Radar;
   private audio!: AudioManager;
   private assetLoader!: AssetLoader;
+  private playfunSDK: any;
 
   private elapsedTime = 0;
   private cameraWorldPos = new THREE.Vector3();
@@ -96,6 +99,7 @@ export class Game {
     // Wire up events
     this.weapon.onKill = (scoreValue, position) => {
       this.score.addKill(scoreValue);
+      this.playfunSDK?.addPoints(scoreValue);
     };
 
     this.waveManager.onWaveStart = (wave) => {
@@ -105,7 +109,9 @@ export class Game {
     };
 
     this.waveManager.onWaveClear = (wave) => {
+      const bonus = wave * CONFIG.scoring.waveBonusMultiplier;
       this.score.addWaveBonus(wave);
+      this.playfunSDK?.addPoints(bonus);
     };
 
     this.baseHealth.onDamage = (amount: number) => {
@@ -172,6 +178,15 @@ export class Game {
         this.audio.toggleMute();
       }
     });
+
+    // Play.fun SDK
+    try {
+      this.playfunSDK = new OpenGameSDK({ ui: { usePointsWidget: true } });
+      await this.playfunSDK.init({ gameId: '10b9288f-e86f-4c4f-9dfd-dd91ffa2d560' });
+      console.log('Play.fun SDK ready');
+    } catch (e) {
+      console.warn('Play.fun SDK failed to init:', e);
+    }
 
     // Ready
     this.overlay.hideLoading();
@@ -413,6 +428,9 @@ export class Game {
       this.radar.hide();
       this.overlay.showGameOver(this.state.stats);
       this.audio.playGameOver();
+
+      // Save points to Play.fun
+      this.playfunSDK?.endGame().catch(() => {});
 
       if (this.input.isTouchDevice) {
         this.input.isLocked = false;
