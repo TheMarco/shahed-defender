@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SHAHED ATTACK</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    #hud {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 10;
+      font-family: 'Courier New', monospace; color: #fff;
+    }
+
+    #crosshair {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px; height: 40px;
+    }
+    #crosshair::before, #crosshair::after {
+      content: ''; position: absolute; background: rgba(255,255,255,0.9);
+    }
+    #crosshair::before {
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 2px; height: 100%;
+    }
+    #crosshair::after {
+      top: 50%; left: 0; transform: translateY(-50%);
+      width: 100%; height: 2px;
+    }
+    .crosshair-dot {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 4px; height: 4px; border-radius: 50%;
+      background: rgba(255,80,80,0.9);
+    }
+
+    #score-display {
+      position: absolute; top: 20px; right: 30px;
+      text-align: right; font-size: 18px; text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    }
+    #score-display .label { font-size: 12px; opacity: 0.7; letter-spacing: 2px; }
+    #score-display .value { font-size: 36px; font-weight: bold; }
+
+    #wave-display {
+      position: absolute; top: 20px; left: 30px;
+      font-size: 18px; text-shadow: 0 0 10px rgba(0,0,0,0.8);
+    }
+    #wave-display .label { font-size: 12px; opacity: 0.7; letter-spacing: 2px; }
+    #wave-display .value { font-size: 28px; font-weight: bold; }
+
+    #health-bar-container {
+      position: absolute; bottom: 30px; left: 50%;
+      transform: translateX(-50%);
+      width: 300px; height: 12px;
+      background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 6px; overflow: hidden;
+    }
+    #health-bar {
+      width: 100%; height: 100%;
+      background: linear-gradient(90deg, #ff4444, #ffaa00, #44ff44);
+      transition: width 0.3s ease;
+      border-radius: 6px;
+    }
+    #health-label {
+      position: absolute; bottom: 48px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px; letter-spacing: 3px; opacity: 0.7;
+    }
+
+    #damage-flash {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(255,0,0,0.55); opacity: 0; pointer-events: none;
+      z-index: 5; transition: opacity 0.15s ease;
+    }
+
+    #damage-vignette {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 4; opacity: 0;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(80,0,0,0.4) 75%, rgba(30,0,0,0.8) 100%);
+      transition: opacity 0.5s ease;
+    }
+
+    #low-health-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 4; opacity: 0;
+      transition: opacity 0.5s ease;
+    }
+    #low-health-overlay::before {
+      content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background:
+        radial-gradient(ellipse at center, transparent 30%, rgba(120,0,0,0.3) 60%, rgba(60,0,0,0.7) 100%);
+    }
+    #low-health-overlay::after {
+      content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background:
+        linear-gradient(15deg, transparent 48%, rgba(80,0,0,0.12) 49%, transparent 51%),
+        linear-gradient(-30deg, transparent 45%, rgba(100,0,0,0.1) 46%, transparent 48%),
+        linear-gradient(65deg, transparent 50%, rgba(60,0,0,0.08) 51%, transparent 53%),
+        linear-gradient(-55deg, transparent 42%, rgba(90,0,0,0.1) 43%, transparent 45%),
+        linear-gradient(40deg, transparent 52%, rgba(70,0,0,0.09) 53%, transparent 55%);
+    }
+
+    #white-flash {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #fff; opacity: 0; pointer-events: none;
+      z-index: 6; transition: opacity 0.3s ease;
+    }
+
+    #wave-banner {
+      position: absolute; top: 40%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 48px; font-weight: bold;
+      text-shadow: 0 0 30px rgba(255,100,0,0.8);
+      opacity: 0; transition: opacity 0.5s ease;
+      letter-spacing: 4px;
+    }
+
+    /* Overlays */
+    .overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 20; pointer-events: auto;
+    }
+
+    #title-screen {
+      background: #000;
+    }
+    #title-screen .title-image {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+    }
+    #title-screen .prompt {
+      position: absolute;
+      bottom: 60px;
+      font-family: 'Courier New', monospace;
+      font-size: 16px; color: rgba(255,255,255,0.8);
+      animation: pulse 2s ease-in-out infinite;
+      text-shadow: 0 0 10px rgba(0,0,0,0.9), 0 0 20px rgba(0,0,0,0.7);
+      z-index: 1;
+    }
+
+    #game-over-screen {
+      background: rgba(0,0,0,0.85);
+      display: none;
+    }
+    #game-over-screen h1 {
+      font-family: 'Courier New', monospace;
+      font-size: 56px; color: #ff3333;
+      text-shadow: 0 0 30px rgba(255,0,0,0.5);
+      margin-bottom: 30px; letter-spacing: 4px;
+    }
+    #game-over-screen .stats {
+      font-family: 'Courier New', monospace;
+      font-size: 20px; color: rgba(255,255,255,0.8);
+      line-height: 2; text-align: center; margin-bottom: 40px;
+    }
+    #game-over-screen .stats .highlight {
+      color: #ffaa00; font-size: 24px; font-weight: bold;
+    }
+    #game-over-screen .prompt {
+      font-family: 'Courier New', monospace;
+      font-size: 16px; color: rgba(255,255,255,0.7);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    #loading-screen {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: #000; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; z-index: 100;
+    }
+    #loading-screen .text {
+      font-family: 'Courier New', monospace;
+      font-size: 18px; color: rgba(255,255,255,0.6);
+      letter-spacing: 3px;
+    }
+    #loading-bar-container {
+      width: 300px; height: 4px; background: rgba(255,255,255,0.1);
+      margin-top: 20px; border-radius: 2px; overflow: hidden;
+    }
+    #loading-bar {
+      width: 0%; height: 100%; background: #ff6600;
+      transition: width 0.3s ease; border-radius: 2px;
+    }
+
+    #fire-button {
+      display: none;
+      position: absolute;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.15);
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      color: rgba(255, 255, 255, 0.8);
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      pointer-events: auto;
+      touch-action: none;
+      z-index: 15;
+      -webkit-user-select: none;
+      user-select: none;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    #fire-button:active {
+      background: rgba(255, 80, 80, 0.4);
+      border-color: rgba(255, 80, 80, 0.8);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-screen">
+    <div class="text">LOADING</div>
+    <div id="loading-bar-container"><div id="loading-bar"></div></div>
+  </div>
+
+  <div id="hud" style="display:none;">
+    <div id="crosshair"><div class="crosshair-dot"></div></div>
+    <div id="score-display">
+      <div class="label">SCORE</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div id="wave-display">
+      <div class="label">WAVE</div>
+      <div class="value" id="wave-value">1</div>
+    </div>
+    <div id="health-label">BASE HEALTH</div>
+    <div id="health-bar-container"><div id="health-bar"></div></div>
+    <div id="fire-button" class="touch-control">FIRE</div>
+    <div id="wave-banner"></div>
+  </div>
+
+  <div id="damage-flash"></div>
+  <div id="damage-vignette"></div>
+  <div id="low-health-overlay"></div>
+  <div id="white-flash"></div>
+
+  <div id="title-screen" class="overlay" style="display:none;">
+    <img src="images/title.png" alt="SHAHED ATTACK" class="title-image" />
+    <div class="prompt">Click to start</div>
+  </div>
+
+  <div id="game-over-screen" class="overlay">
+    <h1>GAME OVER</h1>
+    <div class="stats">
+      <div>Wave: <span class="highlight" id="go-wave">1</span></div>
+      <div>Score: <span class="highlight" id="go-score">0</span></div>
+      <div>Destroyed: <span class="highlight" id="go-kills">0</span></div>
+      <div>Best: <span class="highlight" id="go-best">0</span></div>
+    </div>
+    <div class="prompt">Press R to restart</div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
