@@ -18,7 +18,7 @@ export class Turret {
   private targetFov: number;
   camera: THREE.PerspectiveCamera;
 
-  private gunGroup: THREE.Group;
+  readonly gunGroup: THREE.Group;
   private barrelCluster: THREE.Object3D | null = null;
   private barrelSpin = 0;
   private barrelSpinSpeed = 0;

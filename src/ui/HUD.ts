@@ -9,6 +9,8 @@ export class HUD {
   private damageVignette: HTMLElement;
   private lowHealthOverlay: HTMLElement;
   private waveBanner: HTMLElement;
+  private heatBar: HTMLElement;
+  private heatLabel: HTMLElement;
   private waveBannerTimeout: number | null = null;
   private damageFlashTimeout: number | null = null;
 
@@ -21,6 +23,8 @@ export class HUD {
     this.damageVignette = document.getElementById('damage-vignette')!;
     this.lowHealthOverlay = document.getElementById('low-health-overlay')!;
     this.waveBanner = document.getElementById('wave-banner')!;
+    this.heatBar = document.getElementById('heat-bar')!;
+    this.heatLabel = document.getElementById('heat-label')!;
   }
 
   show(): void {
@@ -88,6 +92,17 @@ export class HUD {
     }, 2000);
   }
 
+  updateHeat(fraction: number, overheated: boolean): void {
+    this.heatBar.style.width = `${fraction * 100}%`;
+    if (overheated) {
+      this.heatBar.classList.add('overheated');
+      this.heatLabel.classList.add('visible');
+    } else {
+      this.heatBar.classList.remove('overheated');
+      this.heatLabel.classList.remove('visible');
+    }
+  }
+
   reset(): void {
     this.scoreEl.textContent = '0';
     this.waveEl.textContent = '1';
@@ -95,5 +110,8 @@ export class HUD {
     this.damageVignette.style.opacity = '0';
     this.lowHealthOverlay.style.opacity = '0';
     this.damageFlash.style.opacity = '0';
+    this.heatBar.style.width = '0%';
+    this.heatBar.classList.remove('overheated');
+    this.heatLabel.classList.remove('visible');
   }
 }

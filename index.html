@@ -18,58 +18,93 @@
     #crosshair {
       position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      width: 40px; height: 40px;
+      width: 280px; height: 200px;
     }
-    #crosshair::before, #crosshair::after {
-      content: ''; position: absolute; background: rgba(255,255,255,0.9);
-    }
-    #crosshair::before {
-      top: 0; left: 50%; transform: translateX(-50%);
-      width: 2px; height: 100%;
-    }
-    #crosshair::after {
-      top: 50%; left: 0; transform: translateY(-50%);
-      width: 100%; height: 2px;
-    }
-    .crosshair-dot {
+    /* Center rectangle */
+    .crosshair-rect {
       position: absolute; top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      width: 4px; height: 4px; border-radius: 50%;
-      background: rgba(255,80,80,0.9);
+      width: 200px; height: 140px;
+      border: 2px solid rgba(255,255,255,0.5);
+      box-sizing: border-box;
+    }
+    /* Dashed horizontal line */
+    #crosshair::after {
+      content: ''; position: absolute;
+      top: 50%; left: 0; transform: translateY(-50%);
+      width: 100%; height: 0;
+      border-top: 3px dashed rgba(255,255,255,0.5);
+    }
+    /* Dashed vertical line */
+    #crosshair::before {
+      content: ''; position: absolute;
+      top: 0; left: 50%; transform: translateX(-50%);
+      width: 0; height: 100%;
+      border-left: 3px dashed rgba(255,255,255,0.5);
     }
 
-    #score-display {
+    #stats-row {
       position: absolute; top: 20px; right: 30px;
-      text-align: right; font-size: 18px; text-shadow: 0 0 10px rgba(0,0,0,0.8);
+      display: flex; gap: 40px; align-items: flex-start;
+      text-shadow: 0 0 10px rgba(0,0,0,0.8);
     }
-    #score-display .label { font-size: 12px; opacity: 0.7; letter-spacing: 2px; }
-    #score-display .value { font-size: 36px; font-weight: bold; }
-
-    #wave-display {
-      position: absolute; top: 20px; left: 30px;
-      font-size: 18px; text-shadow: 0 0 10px rgba(0,0,0,0.8);
-    }
-    #wave-display .label { font-size: 12px; opacity: 0.7; letter-spacing: 2px; }
-    #wave-display .value { font-size: 28px; font-weight: bold; }
+    #stats-row .stat { text-align: right; }
+    #stats-row .label { font-size: 14px; opacity: 0.7; letter-spacing: 2px; }
+    #stats-row .value { font-size: 36px; font-weight: bold; }
 
     #health-bar-container {
-      position: absolute; bottom: 30px; left: 50%;
+      position: absolute; bottom: 80px; left: 50%;
       transform: translateX(-50%);
-      width: 300px; height: 12px;
+      width: 300px; height: 20px;
       background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.3);
-      border-radius: 6px; overflow: hidden;
+      border-radius: 4px; overflow: hidden;
     }
     #health-bar {
       width: 100%; height: 100%;
       background: linear-gradient(90deg, #ff4444, #ffaa00, #44ff44);
       transition: width 0.3s ease;
-      border-radius: 6px;
+      border-radius: 4px;
     }
     #health-label {
-      position: absolute; bottom: 48px; left: 50%;
+      position: absolute; bottom: 106px; left: 50%;
       transform: translateX(-50%);
-      font-size: 11px; letter-spacing: 3px; opacity: 0.7;
+      font-size: 24px; letter-spacing: 3px;
+      color: #ffffff;
+      -webkit-text-stroke: 0px;
+      text-shadow: 0 0 4px #000, 0 0 4px #000, 1px 1px 2px #000, -1px -1px 2px #000;
     }
+
+    #heat-bar-container {
+      position: absolute; bottom: 16px; left: 50%;
+      transform: translateX(-50%);
+      width: 200px; height: 14px;
+      background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 3px; overflow: hidden;
+    }
+    #heat-bar {
+      width: 0%; height: 100%;
+      background: linear-gradient(90deg, #ffaa00, #ff4400);
+      transition: width 0.05s linear;
+      border-radius: 3px;
+    }
+    #heat-bar.overheated {
+      background: linear-gradient(90deg, #ff2200, #ff0000);
+      animation: heat-pulse 0.3s ease-in-out infinite alternate;
+    }
+    @keyframes heat-pulse {
+      from { opacity: 0.7; }
+      to { opacity: 1; }
+    }
+    #heat-label {
+      position: absolute; bottom: 34px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 22px; letter-spacing: 2px; opacity: 0;
+      color: #ff4400;
+      -webkit-text-stroke: 0px;
+      text-shadow: 0 0 4px #000, 0 0 4px #000, 1px 1px 2px #000, -1px -1px 2px #000;
+      transition: opacity 0.2s ease;
+    }
+    #heat-label.visible { opacity: 1; }
 
     #damage-flash {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -197,9 +232,11 @@
       width: 80px;
       height: 80px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.15);
-      border: 2px solid rgba(255, 255, 255, 0.4);
-      color: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.2);
+      border: 3px solid rgba(255, 255, 255, 0.7);
+      color: #fff;
+      text-shadow: 0 0 6px rgba(255,100,100,0.8), 0 0 2px #000;
+      box-shadow: 0 0 12px rgba(255,100,100,0.3), inset 0 0 8px rgba(255,255,255,0.1);
       font-family: 'Courier New', monospace;
       font-size: 14px;
       font-weight: bold;
@@ -222,6 +259,13 @@
       0%, 100% { opacity: 0.5; }
       50% { opacity: 1; }
     }
+    @media (pointer: coarse) {
+      #health-bar-container { bottom: 200px; }
+      #health-label { bottom: 226px; }
+      #heat-bar-container { bottom: 150px; }
+      #heat-label { bottom: 168px; }
+      #fire-button { bottom: 40px; }
+    }
   </style>
 </head>
 <body>
@@ -231,17 +275,21 @@
   </div>
 
   <div id="hud" style="display:none;">
-    <div id="crosshair"><div class="crosshair-dot"></div></div>
-    <div id="score-display">
-      <div class="label">SCORE</div>
-      <div class="value" id="score-value">0</div>
-    </div>
-    <div id="wave-display">
-      <div class="label">WAVE</div>
-      <div class="value" id="wave-value">1</div>
+    <div id="crosshair"><div class="crosshair-rect"></div></div>
+    <div id="stats-row">
+      <div class="stat">
+        <div class="label">WAVE</div>
+        <div class="value" id="wave-value">1</div>
+      </div>
+      <div class="stat">
+        <div class="label">SCORE</div>
+        <div class="value" id="score-value">0</div>
+      </div>
     </div>
     <div id="health-label">BASE HEALTH</div>
     <div id="health-bar-container"><div id="health-bar"></div></div>
+    <div id="heat-label">OVERHEATED</div>
+    <div id="heat-bar-container"><div id="heat-bar"></div></div>
     <div id="fire-button" class="touch-control">FIRE</div>
     <div id="wave-banner"></div>
   </div>

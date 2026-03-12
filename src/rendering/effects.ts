@@ -364,6 +364,7 @@ export class EffectsManager {
   spawnExplosion(position: THREE.Vector3): void {
     const group = new THREE.Group();
     group.position.copy(position);
+    group.scale.setScalar(0.3);
     const spriteMaterials: THREE.SpriteMaterial[] = [];
     const extraMaterials: THREE.Material[] = [];
 
@@ -376,7 +377,7 @@ export class EffectsManager {
     });
     spriteMaterials.push(flashMat);
     const flashSprite = new THREE.Sprite(flashMat);
-    flashSprite.scale.setScalar(10);
+    flashSprite.scale.setScalar(3);
     group.add(flashSprite);
 
     const flashRingMat = new THREE.SpriteMaterial({
@@ -387,7 +388,7 @@ export class EffectsManager {
     });
     spriteMaterials.push(flashRingMat);
     const flashRing = new THREE.Sprite(flashRingMat);
-    flashRing.scale.setScalar(14);
+    flashRing.scale.setScalar(5);
     group.add(flashRing);
 
     // ===== FIREBALL (0-2s): 40 fire sprites =====
@@ -642,7 +643,7 @@ export class EffectsManager {
     }
 
     // ===== GROUND SCORCH =====
-    const scorchGeo = new THREE.PlaneGeometry(16, 16);
+    const scorchGeo = new THREE.PlaneGeometry(0, 0);
     const scorchMat = new THREE.MeshBasicMaterial({
       color: 0x111111, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
     });
@@ -678,7 +679,7 @@ export class EffectsManager {
     this.scene.add(fillLight);
     let fillLightRemoved = false;
 
-    const lifetime = 6.0;
+    const lifetime = 3.0;
 
     this.effects.push({
       mesh: group,
@@ -689,9 +690,9 @@ export class EffectsManager {
         if (elapsed < 0.08) {
           const ft = elapsed / 0.08;
           flashMat.opacity = (1 - ft) * (1 - ft); // quadratic falloff
-          flashSprite.scale.setScalar(10 + ft * 20);
+          flashSprite.scale.setScalar(3 + ft * 5);
           flashRingMat.opacity = 0.8 * (1 - ft);
-          flashRing.scale.setScalar(14 + ft * 20);
+          flashRing.scale.setScalar(5 + ft * 5);
         } else {
           flashMat.opacity = 0;
           flashRingMat.opacity = 0;

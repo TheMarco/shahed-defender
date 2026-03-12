@@ -15,6 +15,18 @@ export class WeaponSystem {
   private camera: THREE.PerspectiveCamera;
   onKill: ((scoreValue: number, position: THREE.Vector3) => void) | null = null;
 
+  // Heat system
+  private heat = 0;
+  private readonly maxHeat = 1; // second of continuous fire to overheat
+  private readonly cooldownTime = 2; // seconds to cool from overheated
+  private overheated = false;
+  private gunMaterials: THREE.MeshStandardMaterial[] = [];
+  private originalEmissives: Map<THREE.MeshStandardMaterial, THREE.Color> = new Map();
+
+  /** Current heat fraction 0-1 for HUD display */
+  get heatFraction(): number { return this.heat / this.maxHeat; }
+  get isOverheated(): boolean { return this.overheated; }
+
   constructor(
     camera: THREE.PerspectiveCamera,
     effects: EffectsManager,
@@ -35,14 +47,65 @@ export class WeaponSystem {
     };
   }
 
+  /** Collect gun materials so we can tint them on overheat */
+  initGunMaterials(gunGroup: THREE.Group): void {
+    gunGroup.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+        const mat = child.material as THREE.MeshStandardMaterial;
+        if (!this.originalEmissives.has(mat)) {
+          this.originalEmissives.set(mat, mat.emissive.clone());
+          this.gunMaterials.push(mat);
+        }
+      }
+    });
+  }
+
   update(dt: number, time: number, input: InputController, turret: Turret, droneManager: DroneManager): void {
-    if (!input.leftButton || !input.isLocked) return;
+    const firing = input.leftButton && input.isLocked && !this.overheated;
+
+    // Heat management
+    if (firing) {
+      this.heat = Math.min(this.heat + dt, this.maxHeat);
+      if (this.heat >= this.maxHeat) {
+        this.overheated = true;
+      }
+    } else {
+      // Cool down — faster when not overheated, fixed rate when overheated
+      const coolRate = this.overheated ? this.maxHeat / this.cooldownTime : 2;
+      this.heat = Math.max(0, this.heat - dt * coolRate);
+      if (this.overheated && this.heat <= 0) {
+        this.overheated = false;
+      }
+    }
+
+    // Visual heat glow on gun
+    this.updateHeatVisual();
+
+    if (!firing) return;
 
     const interval = 1 / this.weapon.fireRate;
     if (time - this.weapon.lastFireTime < interval) return;
     this.weapon.lastFireTime = time;
 
     this.fire(turret, droneManager);
+  }
+
+  private updateHeatVisual(): void {
+    const t = this.heat / this.maxHeat;
+    for (const mat of this.gunMaterials) {
+      const orig = this.originalEmissives.get(mat)!;
+      if (t > 0.1) {
+        // Blend from original emissive to red-hot
+        const r = orig.r + (1.0 - orig.r) * t;
+        const g = orig.g + (0.2 - orig.g) * t * t;
+        const b = orig.b + (0.0 - orig.b) * t;
+        mat.emissive.setRGB(r, g, b);
+        mat.emissiveIntensity = 0.5 + t * 2.5;
+      } else {
+        mat.emissive.copy(orig);
+        mat.emissiveIntensity = 1;
+      }
+    }
   }
 
   private fire(turret: Turret, droneManager: DroneManager): void {
@@ -96,5 +159,8 @@ export class WeaponSystem {
 
   reset(): void {
     this.weapon.lastFireTime = 0;
+    this.heat = 0;
+    this.overheated = false;
+    this.updateHeatVisual();
   }
 }

@@ -21,8 +21,12 @@ export class DroneManager {
 
     const dist = CONFIG.drone.spawnDistance;
 
-    // Pick an approach pattern randomly
-    const pattern = Math.random();
+    // Pick an approach pattern — low skimmers and flankers only in later waves
+    let pattern = Math.random();
+    // Before wave 4: no low skimmers. Before wave 3: no flankers.
+    if (wave < 4 && pattern >= 0.3 && pattern < 0.5) pattern = 0.8; // reroll to standard
+    if (wave < 3 && pattern >= 0.5 && pattern < 0.7) pattern = 0.8;
+
     let spawnX: number, spawnY: number, spawnZ: number;
     let targetX: number, targetY: number;
 
@@ -34,14 +38,14 @@ export class DroneManager {
       targetX = randRange(-8, 8);
       targetY = randRange(2, 5);
     } else if (pattern < 0.5) {
-      // LOW SKIMMER — hugs the water, hard to spot
+      // LOW SKIMMER — hugs the water, hard to spot (wave 4+)
       spawnX = randRange(-180, 180);
-      spawnY = randRange(3, 10);
+      spawnY = randRange(5, 15);
       spawnZ = -dist * randRange(0.8, 1.0);
       targetX = randRange(-6, 6);
-      targetY = randRange(3, 6);
+      targetY = randRange(4, 8);
     } else if (pattern < 0.7) {
-      // WIDE FLANKER — comes from far left or right
+      // WIDE FLANKER — comes from far left or right (wave 3+)
       const side = Math.random() < 0.5 ? -1 : 1;
       spawnX = side * randRange(150, 280);
       spawnY = randRange(20, 60);
@@ -55,7 +59,7 @@ export class DroneManager {
       spawnY = randRange(CONFIG.drone.spawnHeight.min, CONFIG.drone.spawnHeight.max);
       spawnZ = -dist;
       targetX = randRange(-10, 10);
-      targetY = randRange(3, 8);
+      targetY = randRange(5, 10);
     }
 
     const spawnPos = new THREE.Vector3(spawnX, spawnY, spawnZ);

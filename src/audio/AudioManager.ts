@@ -3,6 +3,15 @@ export class AudioManager {
   private muted = false;
   private loading = false;
 
+  // Master gain nodes
+  private sfxGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+
+  // Music
+  private musicBuffer: AudioBuffer | null = null;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicPlaying = false;
+
   // Buffers
   private shotBuffer: AudioBuffer | null = null;
   private explosionClose: AudioBuffer | null = null;
@@ -26,36 +35,105 @@ export class AudioManager {
   private ensureContext(): AudioContext {
     if (!this.ctx) {
       this.ctx = new AudioContext();
+      this.sfxGain = this.ctx.createGain();
+      this.sfxGain.gain.value = 1.0;
+      this.sfxGain.connect(this.ctx.destination);
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = 0.4;
+      this.musicGain.connect(this.ctx.destination);
     }
+    // iOS keeps context suspended until a user gesture — resume is
+    // called from resumeOnInteraction() inside a touch/click handler
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
     return this.ctx;
   }
 
+  /**
+   * Call this from a user gesture handler (click/touchend) to unlock
+   * audio on iOS. Safe to call multiple times.
+   */
+  resumeOnInteraction(): void {
+    // Create context on first interaction if it doesn't exist yet
+    const ctx = this.ensureContext();
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+    // Decode audio buffers once context is running
+    if (!this.decodePromise && this.rawBuffers.size > 0) {
+      this.decodeAll();
+    }
+  }
+
+  /** Get the SFX output node (all game sounds route through this) */
+  private get sfxOut(): AudioNode {
+    return this.sfxGain || this.ensureContext().destination;
+  }
+
+  // Raw ArrayBuffers fetched before AudioContext exists
+  private rawBuffers: Map<string, ArrayBuffer> = new Map();
+  private decodePromise: Promise<void> | null = null;
+
   async preload(): Promise<void> {
     if (this.loading) return;
     this.loading = true;
-    const ctx = this.ensureContext();
-    const load = async (path: string): Promise<AudioBuffer | null> => {
+
+    // Fetch raw bytes — no AudioContext needed yet
+    const paths = [
+      'audio/shooting.mp3',
+      'audio/explosion-close.mp3',
+      'audio/explosion-medium.mp3',
+      'audio/explosion-far.mp3',
+      'audio/impact.mp3',
+      'audio/shahed.mp3',
+      'audio/air-raid.mp3',
+      'audio/music.mp3',
+    ];
+
+    await Promise.all(paths.map(async (path) => {
       try {
         const resp = await fetch(path);
         const buf = await resp.arrayBuffer();
-        return await ctx.decodeAudioData(buf);
+        this.rawBuffers.set(path, buf);
       } catch {
-        console.warn(`Could not load ${path}`);
+        console.warn(`Could not fetch ${path}`);
+      }
+    }));
+
+    this.loading = false;
+  }
+
+  /** Decode raw buffers into AudioBuffers. Must be called after context is unlocked. */
+  private decodeAll(): Promise<void> {
+    if (this.decodePromise) return this.decodePromise;
+    this.decodePromise = this._decodeAll();
+    return this.decodePromise;
+  }
+
+  private async _decodeAll(): Promise<void> {
+    const ctx = this.ensureContext();
+
+    const decode = async (path: string): Promise<AudioBuffer | null> => {
+      const raw = this.rawBuffers.get(path);
+      if (!raw) return null;
+      try {
+        return await ctx.decodeAudioData(raw);
+      } catch {
+        console.warn(`Could not decode ${path}`);
         return null;
       }
     };
 
-    const [shot, close, medium, far, impact, shahed, airRaid] = await Promise.all([
-      load('audio/shooting.mp3'),
-      load('audio/explosion-close.mp3'),
-      load('audio/explosion-medium.mp3'),
-      load('audio/explosion-far.mp3'),
-      load('audio/impact.mp3'),
-      load('audio/shahed.mp3'),
-      load('audio/air-raid.mp3'),
+    const [shot, close, medium, far, impact, shahed, airRaid, music] = await Promise.all([
+      decode('audio/shooting.mp3'),
+      decode('audio/explosion-close.mp3'),
+      decode('audio/explosion-medium.mp3'),
+      decode('audio/explosion-far.mp3'),
+      decode('audio/impact.mp3'),
+      decode('audio/shahed.mp3'),
+      decode('audio/air-raid.mp3'),
+      decode('audio/music.mp3'),
     ]);
     this.shotBuffer = shot;
     this.explosionClose = close;
@@ -64,7 +142,37 @@ export class AudioManager {
     this.impactBuffer = impact;
     this.shahedBuffer = shahed;
     this.airRaidBuffer = airRaid;
-    this.loading = false;
+    this.musicBuffer = music;
+    this.rawBuffers.clear(); // free memory
+  }
+
+  // --- Background music ---
+
+  async startMusic(): Promise<void> {
+    await this.decodeAll();
+    if (this.musicPlaying || !this.musicBuffer) return;
+    const ctx = this.ensureContext();
+    const source = ctx.createBufferSource();
+    source.buffer = this.musicBuffer;
+    source.loop = true;
+    source.connect(this.musicGain!);
+    source.start(ctx.currentTime);
+    this.musicSource = source;
+    this.musicPlaying = true;
+    source.onended = () => {
+      this.musicPlaying = false;
+      this.musicSource = null;
+    };
+  }
+
+  stopMusic(): void {
+    if (!this.musicSource) return;
+    try {
+      const ctx = this.ensureContext();
+      this.musicSource.stop(ctx.currentTime + 0.1);
+    } catch { /* already stopped */ }
+    this.musicSource = null;
+    this.musicPlaying = false;
   }
 
   private playBuffer(buffer: AudioBuffer | null, volume: number = 0.5, playbackRate: number = 1): void {
@@ -76,7 +184,7 @@ export class AudioManager {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(volume, ctx.currentTime);
     source.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
     source.start(ctx.currentTime);
   }
 
@@ -92,7 +200,7 @@ export class AudioManager {
       const gain = ctx.createGain();
       gain.gain.setValueAtTime(0.25, ctx.currentTime);
       source.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.sfxOut);
       source.start(ctx.currentTime, 0, 0.12);
       return;
     }
@@ -106,7 +214,7 @@ export class AudioManager {
     gain.gain.setValueAtTime(0.15, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.06);
   }
@@ -141,7 +249,7 @@ export class AudioManager {
     gain.gain.setValueAtTime(0.4, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.5);
   }
@@ -164,7 +272,7 @@ export class AudioManager {
       gain.gain.setValueAtTime(0.15, ctx.currentTime + i * 0.15);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.1);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.sfxOut);
       osc.start(ctx.currentTime + i * 0.15);
       osc.stop(ctx.currentTime + i * 0.15 + 0.1);
     }
@@ -183,7 +291,7 @@ export class AudioManager {
     gain.gain.setValueAtTime(0.12, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.08);
   }
@@ -206,7 +314,7 @@ export class AudioManager {
     const gain = ctx.createGain();
     gain.gain.value = 0; // starts silent, updated per frame
     source.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
 
     const offset = Math.random() * this.shahedBuffer.duration;
     source.start(ctx.currentTime, offset);
@@ -292,7 +400,7 @@ export class AudioManager {
     gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 5.5);
 
     source.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(this.sfxOut);
     source.start(ctx.currentTime);
     // Stop source after fade
     source.stop(ctx.currentTime + 6);
@@ -329,7 +437,8 @@ export class AudioManager {
 
   // --- Wave start (air raid + synth sting) ---
 
-  playWaveStart(): void {
+  async playWaveStart(): Promise<void> {
+    await this.decodeAll();
     this.playAirRaid();
   }
 
@@ -350,7 +459,7 @@ export class AudioManager {
       gain.gain.setValueAtTime(0.2, ctx.currentTime + i * 0.25);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.25 + 0.3);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(this.sfxOut);
       osc.start(ctx.currentTime + i * 0.25);
       osc.stop(ctx.currentTime + i * 0.25 + 0.3);
     });
@@ -363,6 +472,11 @@ export class AudioManager {
     if (this.muted) {
       this.stopAllDroneMotors();
       this.stopAirRaid();
+      if (this.musicGain) this.musicGain.gain.value = 0;
+      if (this.sfxGain) this.sfxGain.gain.value = 0;
+    } else {
+      if (this.musicGain) this.musicGain.gain.value = 0.4;
+      if (this.sfxGain) this.sfxGain.gain.value = 1.0;
     }
   }
 }

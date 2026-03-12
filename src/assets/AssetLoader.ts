@@ -55,7 +55,7 @@ export class AssetLoader {
           obj.traverse((child) => {
             if (child instanceof THREE.Mesh) {
               child.material = new THREE.MeshStandardMaterial({
-                color: 0xaaaaaa,
+                color: 0xcccccc,
                 roughness: 0.6,
                 metalness: 0.3,
               });
@@ -207,12 +207,31 @@ export class AssetLoader {
       wrapper.scale.setScalar(1 / maxDim);
     }
 
+    // Lighten all drone materials to near-white
+    wrapper.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const mats = Array.isArray(child.material) ? child.material : [child.material];
+        for (let i = 0; i < mats.length; i++) {
+          const m = mats[i];
+          if (m instanceof THREE.MeshStandardMaterial || m instanceof THREE.MeshPhongMaterial) {
+            const clone = m.clone();
+            clone.color.set(0xf8f8f8);
+            if (Array.isArray(child.material)) {
+              child.material[i] = clone;
+            } else {
+              child.material = clone;
+            }
+          }
+        }
+      }
+    });
+
     return wrapper;
   }
 
   private createFallbackDrone(): THREE.Group {
     const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.5, metalness: 0.4 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.5, metalness: 0.4 });
 
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.08, 1, 8), mat);
     body.rotation.x = Math.PI / 2;

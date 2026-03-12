@@ -31,16 +31,16 @@ export const CONFIG = {
   waves: {
     baseCount: 5,
     countMultiplier: 2.5,
-    initialSpawnInterval: 1.2,
-    spawnIntervalDecay: 0.045,
-    minSpawnInterval: 0.18,
+    initialSpawnInterval: 2.5,
+    spawnIntervalDecay: 0.03,
+    minSpawnInterval: 0.5,
     speedIncreasePerWave: 1.5,
     interWaveDelay: 2.5,
   },
 
   camera: {
-    fov: 70,
-    zoomFov: 35,
+    fov: 55,
+    zoomFov: 28,
     recoilKick: 0.25,
     damageShake: 0.5,
     minPitch: -0.15,

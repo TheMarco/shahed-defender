@@ -17,6 +17,7 @@ import { BaseHealthSystem } from '../gameplay/BaseHealthSystem';
 import { ScoreSystem } from '../gameplay/ScoreSystem';
 import { HUD } from '../ui/HUD';
 import { Overlay } from '../ui/Overlay';
+import { Radar } from '../ui/Radar';
 import { AudioManager } from '../audio/AudioManager';
 import { AssetLoader } from '../assets/AssetLoader';
 
@@ -38,6 +39,7 @@ export class Game {
   private effects!: EffectsManager;
   private hud!: HUD;
   private overlay!: Overlay;
+  private radar!: Radar;
   private audio!: AudioManager;
   private assetLoader!: AssetLoader;
 
@@ -66,6 +68,7 @@ export class Game {
     // UI
     this.hud = new HUD();
     this.overlay = new Overlay();
+    this.radar = new Radar();
     this.audio = new AudioManager();
 
     // Load assets
@@ -84,6 +87,7 @@ export class Game {
     // Gameplay systems
     this.turret = new Turret(this.camera);
     this.weapon = new WeaponSystem(this.camera, this.effects, this.audio);
+    this.weapon.initGunMaterials(this.turret.gunGroup);
     this.droneManager = new DroneManager(this.scene, this.assetLoader);
     this.waveManager = new WaveManager();
     this.baseHealth = new BaseHealthSystem(this.state);
@@ -128,6 +132,12 @@ export class Game {
         this.input.fireButton = false;
       });
     }
+
+    // Unlock audio on first user gesture (required for iOS)
+    const unlockAudio = () => this.audio.resumeOnInteraction();
+    document.addEventListener('click', unlockAudio, { once: false });
+    document.addEventListener('touchstart', unlockAudio, { once: false });
+    document.addEventListener('touchend', unlockAudio, { once: false });
 
     // Click handler — on document so overlays don't block it
     document.addEventListener('click', () => {
@@ -177,6 +187,7 @@ export class Game {
     this.overlay.hideTitle();
     this.overlay.hideGameOver();
     this.hud.show();
+    this.audio.startMusic();
     this.state.resetRun();
 
     if (this.input.isTouchDevice) {
@@ -187,6 +198,7 @@ export class Game {
       this.input.requestPointerLock();
     }
 
+    this.radar.show();
     this.state.setState('PLAYING');
     this.waveManager.startWave(1);
   }
@@ -222,6 +234,7 @@ export class Game {
       this.input.requestPointerLock();
     }
 
+    this.radar.show();
     this.state.setState('PLAYING');
     this.waveManager.startWave(1);
   }
@@ -282,6 +295,8 @@ export class Game {
 
         // HUD
         this.hud.update(this.state.stats);
+        this.hud.updateHeat(this.weapon.heatFraction, this.weapon.isOverheated);
+        this.radar.update(this.turret.yaw, this.droneManager.drones);
 
         // Death check
         if (this.baseHealth.isDead()) {
@@ -395,6 +410,7 @@ export class Game {
       this.deathTimeScale = 1;
       this.state.setState('GAME_OVER');
       this.hud.hide();
+      this.radar.hide();
       this.overlay.showGameOver(this.state.stats);
       this.audio.playGameOver();
 

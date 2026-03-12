@@ -1,15 +1,19 @@
 import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import { MTLLoader } from 'three/addons/loaders/MTLLoader.js';
+
 import { CONFIG } from '../game/config';
 
 export function createEnvironment(scene: THREE.Scene): void {
   createSky(scene);
   createOcean(scene);
+  createShip(scene);
   createBeachhead(scene);
   createTurretNest(scene);
   createSkyline(scene);
   createPalmTrees(scene);
   createBeachDebris(scene);
-  createGroundHaze(scene);
+  // createGroundHaze(scene);
 }
 
 // ============================================================
@@ -18,6 +22,8 @@ export function createEnvironment(scene: THREE.Scene): void {
 
 function createSky(scene: THREE.Scene): void {
   const skyGeo = new THREE.SphereGeometry(900, 64, 64);
+  const skyTex = new THREE.TextureLoader().load('textures/sky.jpg');
+  skyTex.colorSpace = THREE.SRGBColorSpace;
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     uniforms: {
@@ -26,19 +32,23 @@ function createSky(scene: THREE.Scene): void {
       horizonColor: { value: new THREE.Color(0xff6622) },
       sunGlowColor: { value: new THREE.Color(0xffcc44) },
       sunDirection: { value: new THREE.Vector3(0.5, 0.15, -0.8).normalize() },
+      uSkyTex: { value: skyTex },
     },
     vertexShader: `
       varying vec3 vDirection;
+      varying vec2 vUv;
       void main() {
         vDirection = normalize(position);
+        vUv = uv;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: `
       uniform vec3 topColor, midColor, horizonColor, sunGlowColor, sunDirection;
+      uniform sampler2D uSkyTex;
       varying vec3 vDirection;
+      varying vec2 vUv;
 
-      // Simple hash for cloud wisps
       float hash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
       }
@@ -99,17 +109,11 @@ function createSky(scene: THREE.Scene): void {
           color = mix(color, cloudColor, cloudMask * 0.5);
         }
 
-        // Stars at high elevation
-        if (h > 0.4) {
-          float starDensity = smoothstep(0.4, 0.7, h);
-          vec2 starUv = dir.xz / (h + 0.01) * 80.0;
-          float starHash = hash(floor(starUv));
-          float starMask = step(0.985, starHash);
-          float twinkle = 0.7 + 0.3 * sin(starHash * 6283.0 + hash(floor(starUv) + vec2(1.0, 0.0)) * 20.0);
-          float starBright = starMask * starDensity * twinkle;
-          // Vary star color slightly
-          vec3 starColor = mix(vec3(0.8, 0.85, 1.0), vec3(1.0, 0.95, 0.8), step(0.5, hash(floor(starUv) + vec2(3.0, 7.0))));
-          color += starColor * starBright * 0.6;
+        // Stars from texture at high elevation, blended additively
+        if (h > 0.3) {
+          vec3 starTex = texture2D(uSkyTex, vUv).rgb;
+          float starBlend = smoothstep(0.3, 0.6, h);
+          color += starTex * starBlend * 1.5;
         }
 
         gl_FragColor = vec4(color, 1.0);
@@ -194,9 +198,71 @@ function createOcean(scene: THREE.Scene): void {
 
   const ocean = new THREE.Mesh(geo, mat);
   ocean.rotation.x = -Math.PI / 2;
-  ocean.position.y = -0.5;
+  ocean.position.set(0, -0.5, -size * 0.45); // Push ocean forward (negative Z), away from the city behind
   scene.add(ocean);
   (scene as any)._ocean = ocean;
+}
+
+// ============================================================
+// CARGO SHIP — loaded OBJ model on the ocean horizon
+// ============================================================
+
+function createShip(scene: THREE.Scene): void {
+  const mtlLoader = new MTLLoader();
+  mtlLoader.setPath('models/ship/');
+  mtlLoader.load('Cargo Ship.mtl', (materials) => {
+    materials.preload();
+    const objLoader = new OBJLoader();
+    objLoader.setMaterials(materials);
+    objLoader.setPath('models/ship/');
+    objLoader.load('Cargo Ship.obj', (obj) => {
+      addShipToScene(scene, obj);
+    });
+  }, undefined, () => {
+    // MTL failed — try OBJ alone with default materials
+    const objLoader = new OBJLoader();
+    objLoader.setPath('models/ship/');
+    objLoader.load('Cargo Ship.obj', (obj) => {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0x555555, roughness: 0.7, metalness: 0.3,
+          });
+        }
+      });
+      addShipToScene(scene, obj);
+    });
+  });
+}
+
+function addShipToScene(scene: THREE.Scene, obj: THREE.Object3D): void {
+  const ship = new THREE.Group();
+
+  // Center horizontally but align bottom of hull near the waterline
+  const box = new THREE.Box3().setFromObject(obj);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  // Shift so the bottom of the bounding box is at Y=0, then lower slightly for waterline
+  obj.position.set(-center.x, -box.min.y - size.y * 0.15, -center.z);
+  ship.add(obj);
+
+  // The OBJ model is ~220 units long (Z), ~57 tall (Y), ~35 wide (X).
+  // The old procedural ship was ~43 units long at scale 3 = ~129 world units.
+  // Scale the OBJ to roughly match: 0.6 gives ~132 unit length.
+  ship.scale.setScalar(0.6);
+
+  // Rotate 90° so the length runs sideways (side profile visible)
+  ship.rotation.y = Math.PI / 2;
+
+  // Position on the ocean horizon
+  ship.position.set(-80, -1.5, -500);
+
+  // Store base Y and phase for bobbing animation
+  ship.userData.baseY = ship.position.y;
+  ship.userData.bobPhase = Math.random() * Math.PI * 2;
+
+  scene.add(ship);
+  (scene as any)._ship = ship;
 }
 
 // ============================================================
@@ -204,11 +270,15 @@ function createOcean(scene: THREE.Scene): void {
 // ============================================================
 
 function createBeachhead(scene: THREE.Scene): void {
-  const beachGeo = new THREE.PlaneGeometry(600, 200, 200, 100);
+  const beachGeo = new THREE.PlaneGeometry(800, 400, 200, 100);
+
+  const sandTex = new THREE.TextureLoader().load('textures/sand.png');
+  sandTex.wrapS = THREE.RepeatWrapping;
+  sandTex.wrapT = THREE.RepeatWrapping;
+
   const beachMat = new THREE.ShaderMaterial({
     uniforms: {
-      uSandLight: { value: new THREE.Color(0xd4b87a) },
-      uSandDark: { value: new THREE.Color(0xa8935e) },
+      uSandTex: { value: sandTex },
       uWetSand: { value: new THREE.Color(0x7a6a45) },
       fogColor: { value: new THREE.Color(0x443322) },
       fogNear: { value: CONFIG.environment.fogNear },
@@ -216,12 +286,13 @@ function createBeachhead(scene: THREE.Scene): void {
     },
     vertexShader: `
       varying vec3 vWorldPosition;
+      varying vec2 vTexCoord;
       varying float vHeight;
       varying float vDistFromWater;
       void main() {
         vec3 pos = position;
         float inland = pos.y;
-        float baseHeight = smoothstep(-5.0, 10.0, inland) * 1.5;
+        float baseHeight = smoothstep(-5.0, 10.0, inland) * 3.0;
         float dunes = sin(pos.x * 0.04 + 0.7) * cos(inland * 0.06 + 0.3) * 2.5
                     + sin(pos.x * 0.09 + inland * 0.05) * 1.0;
         dunes *= smoothstep(15.0, 60.0, inland);
@@ -230,13 +301,17 @@ function createBeachhead(scene: THREE.Scene): void {
         vDistFromWater = inland;
         vec4 worldPos = modelMatrix * vec4(pos, 1.0);
         vWorldPosition = worldPos.xyz;
+        // Tile the sand texture across the beach
+        vTexCoord = vWorldPosition.xz * 0.15;
         gl_Position = projectionMatrix * viewMatrix * worldPos;
       }
     `,
     fragmentShader: `
-      uniform vec3 uSandLight, uSandDark, uWetSand, fogColor;
+      uniform sampler2D uSandTex;
+      uniform vec3 uWetSand, fogColor;
       uniform float fogNear, fogFar;
       varying vec3 vWorldPosition;
+      varying vec2 vTexCoord;
       varying float vHeight, vDistFromWater;
 
       float hash(vec2 p) {
@@ -251,17 +326,14 @@ function createBeachhead(scene: THREE.Scene): void {
       }
 
       void main() {
-        float wetness = 1.0 - smoothstep(-2.0, 12.0, vDistFromWater);
-        float heightVar = smoothstep(0.0, 4.0, vHeight);
-        vec3 drySand = mix(uSandDark, uSandLight, heightVar);
-        vec3 sandColor = mix(drySand, uWetSand, wetness);
+        // Sample the sand texture — blend two scales to reduce tiling
+        vec3 tex1 = texture2D(uSandTex, vTexCoord).rgb;
+        vec3 tex2 = texture2D(uSandTex, vTexCoord * 0.31 + 0.5).rgb;
+        vec3 sandColor = mix(tex1, tex2, 0.25);
 
-        // Multi-octave sand grain noise
-        float n1 = noise(vWorldPosition.xz * 3.0);
-        float n2 = noise(vWorldPosition.xz * 12.0);
-        float n3 = noise(vWorldPosition.xz * 40.0);
-        float grain = n1 * 0.4 + n2 * 0.35 + n3 * 0.25;
-        sandColor += (grain - 0.5) * 0.08;
+        // Darken near waterline for wet sand
+        float wetness = 1.0 - smoothstep(-2.0, 12.0, vDistFromWater);
+        sandColor *= mix(1.0, 0.55, wetness);
 
         // Ripple marks near waterline
         float ripple = sin(vWorldPosition.x * 2.5 + vDistFromWater * 1.2) * 0.5 + 0.5;
@@ -293,7 +365,7 @@ function createBeachhead(scene: THREE.Scene): void {
   });
   const beach = new THREE.Mesh(beachGeo, beachMat);
   beach.rotation.x = -Math.PI / 2;
-  beach.position.set(0, 0.02, 95);
+  beach.position.set(0, 0.5, 195);
   scene.add(beach);
 
   // Shoreline foam
@@ -371,179 +443,8 @@ function createSkyline(scene: THREE.Scene): void {
     return s - Math.floor(s);
   };
 
-  // --- LAYER 1: San Gabriel Mountains (furthest back, z=550) ---
-  const mtPositions: number[] = [];
-  const mtIndices: number[] = [];
-  let mtVert = 0;
-  const mtZ = 550;
-  const mtWidth = 1200;
-  const mtSegments = 200;
 
-  // Generate mountain ridge line with multiple peaks
-  const mountainHeight = (x: number): number => {
-    const nx = x / mtWidth; // -0.5 to 0.5
-    // Main ridge — several overlapping peaks
-    let h = 0;
-    h += Math.exp(-(((nx - 0.05) * 6) ** 2)) * 120; // Mt Baldy (tallest, slightly right of center)
-    h += Math.exp(-(((nx + 0.15) * 5) ** 2)) * 95;  // Mt Wilson area
-    h += Math.exp(-(((nx - 0.25) * 5) ** 2)) * 85;  // East peak
-    h += Math.exp(-(((nx + 0.35) * 4) ** 2)) * 60;  // Western foothills
-    h += Math.exp(-(((nx - 0.4) * 4) ** 2)) * 55;   // Eastern foothills
-    // Smaller ridges and variation
-    h += Math.sin(nx * 25) * 8 + Math.sin(nx * 47) * 4 + Math.sin(nx * 93) * 2;
-    // Ensure foothills taper to edges
-    h *= smoothstepJS(0.5, 0.35, Math.abs(nx));
-    return Math.max(h, 5);
-  };
-
-  for (let i = 0; i <= mtSegments; i++) {
-    const t = i / mtSegments;
-    const x = (t - 0.5) * mtWidth;
-    const h = mountainHeight(x);
-    // Bottom vertex
-    mtPositions.push(x, -5, mtZ);
-    // Top vertex
-    mtPositions.push(x, h, mtZ);
-    if (i < mtSegments) {
-      const b0 = mtVert;
-      const t0 = mtVert + 1;
-      const b1 = mtVert + 2;
-      const t1 = mtVert + 3;
-      mtIndices.push(b0, b1, t1, b0, t1, t0);
-    }
-    mtVert += 2;
-  }
-
-  const mtGeo = new THREE.BufferGeometry();
-  mtGeo.setAttribute('position', new THREE.Float32BufferAttribute(mtPositions, 3));
-  mtGeo.setIndex(mtIndices);
-
-  const mtMat = new THREE.ShaderMaterial({
-    vertexShader: `
-      varying vec3 vWorldPos;
-      varying float vHeight;
-      void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        vHeight = position.y;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vWorldPos;
-      varying float vHeight;
-
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        return mix(mix(hash(i), hash(i + vec2(1,0)), f.x),
-                   mix(hash(i + vec2(0,1)), hash(i + vec2(1,1)), f.x), f.y);
-      }
-
-      void main() {
-        // Base mountain color — warm brown/grey
-        vec3 rockColor = vec3(0.35, 0.28, 0.25);
-        // Snow on peaks
-        float snowLine = 65.0;
-        float snowAmount = smoothstep(snowLine, snowLine + 30.0, vHeight);
-        // Add noise to snow line for natural look
-        float n = noise(vWorldPos.xz * 0.1);
-        snowAmount *= smoothstep(0.3, 0.6, n + (vHeight - snowLine) * 0.02);
-        vec3 snowColor = vec3(0.88, 0.86, 0.84); // Slightly warm white (sunset tint)
-
-        // Ridge detail — lighter on ridges
-        float ridge = noise(vWorldPos.xz * 0.05) * 0.15;
-        rockColor += ridge;
-
-        // Sunset warm light hitting peaks
-        float sunFacing = smoothstep(40.0, 100.0, vHeight);
-        vec3 sunTint = vec3(0.5, 0.3, 0.2) * sunFacing * 0.3;
-
-        vec3 color = mix(rockColor + sunTint, snowColor, snowAmount);
-
-        // Atmospheric haze — distance fade to sky color
-        float hazeFactor = smoothstep(20.0, 0.0, vHeight) * 0.6;
-        vec3 hazeColor = vec3(0.65, 0.55, 0.5);
-        color = mix(color, hazeColor, hazeFactor);
-
-        // Overall atmospheric tint (mountains are far away)
-        color = mix(color, vec3(0.6, 0.55, 0.55), 0.25);
-
-        gl_FragColor = vec4(color, 1.0);
-      }
-    `,
-    side: THREE.DoubleSide,
-  });
-
-  scene.add(new THREE.Mesh(mtGeo, mtMat));
-
-  // --- LAYER 2: Foothills / suburban sprawl (z=480) ---
-  const subPositions: number[] = [];
-  const subIndices: number[] = [];
-  let subVert = 0;
-  const subZ = 480;
-  const subWidth = 1000;
-  const subSegments = 150;
-
-  for (let i = 0; i <= subSegments; i++) {
-    const t = i / subSegments;
-    const x = (t - 0.5) * subWidth;
-    // Low rolling hills with some trees/buildings implied
-    let h = 8 + Math.sin(t * 12) * 3 + Math.sin(t * 27) * 1.5 + Math.sin(t * 61) * 0.8;
-    // Slight rise toward center
-    h += (1 - Math.abs(t - 0.5) * 2) * 6;
-    subPositions.push(x, -3, subZ);
-    subPositions.push(x, h, subZ);
-    if (i < subSegments) {
-      subIndices.push(subVert, subVert + 2, subVert + 3, subVert, subVert + 3, subVert + 1);
-    }
-    subVert += 2;
-  }
-
-  const subGeo = new THREE.BufferGeometry();
-  subGeo.setAttribute('position', new THREE.Float32BufferAttribute(subPositions, 3));
-  subGeo.setIndex(subIndices);
-
-  const subMat = new THREE.ShaderMaterial({
-    vertexShader: `
-      varying vec3 vWorldPos;
-      void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWorldPos = wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }
-    `,
-    fragmentShader: `
-      varying vec3 vWorldPos;
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-      void main() {
-        // Suburban sprawl — muted greys/browns with occasional color
-        vec3 baseColor = vec3(0.28, 0.25, 0.22);
-        // Tiny "building" texture
-        vec2 grid = floor(vWorldPos.xz * 0.8);
-        float h = hash(grid);
-        // Some rooftops lighter, some darker
-        baseColor += (h - 0.5) * 0.08;
-        // Occasional tree-green patches
-        float tree = step(0.82, hash(grid * 3.1));
-        baseColor = mix(baseColor, vec3(0.18, 0.25, 0.14), tree * 0.4);
-        // Atmospheric haze
-        baseColor = mix(baseColor, vec3(0.55, 0.48, 0.45), 0.35);
-        gl_FragColor = vec4(baseColor, 1.0);
-      }
-    `,
-    side: THREE.DoubleSide,
-  });
-
-  scene.add(new THREE.Mesh(subGeo, subMat));
-
-  // --- LAYER 3: Downtown skyline (z=400) — main buildings ---
+  // --- Downtown skyline (z=400) — main buildings ---
   const skylineZ = 400;
   const skylineWidth = 800;
   const buildingCount = 75;
@@ -575,7 +476,7 @@ function createSkyline(scene: THREE.Scene): void {
     const x0 = x - w * 0.5;
     const x1 = x + w * 0.5;
 
-    positions.push(x0, -2, skylineZ, x1, -2, skylineZ, x1, h, skylineZ, x0, h, skylineZ);
+    positions.push(x0, -10, skylineZ, x1, -10, skylineZ, x1, h, skylineZ, x0, h, skylineZ);
     uvs.push(0, 0, w / 10, 0, w / 10, h / 10, 0, h / 10);
     // Encode building ID in color attribute for shader
     const bid = seed(i * 13.7);
@@ -621,11 +522,11 @@ function createSkyline(scene: THREE.Scene): void {
         // Building facade color varies per building
         float bid = vBuildingId;
 
-        // Varied building materials: glass (blue-grey), concrete (warm beige), dark steel
-        vec3 glass = vec3(0.25, 0.32, 0.40);
-        vec3 concrete = vec3(0.42, 0.38, 0.33);
-        vec3 darkSteel = vec3(0.12, 0.11, 0.13);
-        vec3 warmBrick = vec3(0.38, 0.25, 0.2);
+        // Varied building materials — darker silhouettes at dusk
+        vec3 glass = vec3(0.10, 0.13, 0.18);
+        vec3 concrete = vec3(0.18, 0.16, 0.14);
+        vec3 darkSteel = vec3(0.06, 0.05, 0.07);
+        vec3 warmBrick = vec3(0.16, 0.10, 0.08);
 
         vec3 buildingColor;
         if (bid < 0.3) {
@@ -638,14 +539,14 @@ function createSkyline(scene: THREE.Scene): void {
           buildingColor = mix(warmBrick, darkSteel, (bid - 0.75) / 0.25);
         }
 
-        // Sunset light on one side — warm golden highlight
-        float sunSide = smoothstep(0.4, 0.7, vUv.x); // right side catches sun
-        buildingColor += vec3(0.15, 0.08, 0.02) * sunSide * smoothstep(0.2, 0.8, vUv.y);
+        // Subtle sunset light on one side
+        float sunSide = smoothstep(0.4, 0.7, vUv.x);
+        buildingColor += vec3(0.06, 0.03, 0.01) * sunSide * smoothstep(0.3, 0.8, vUv.y);
 
-        // Glass reflections for glass buildings — bright sky reflection on upper floors
+        // Faint glass reflection on upper floors of glass buildings
         if (bid < 0.3) {
-          float glassReflect = smoothstep(0.5, 0.9, vUv.y) * 0.15;
-          buildingColor += vec3(0.4, 0.3, 0.2) * glassReflect;
+          float glassReflect = smoothstep(0.6, 0.95, vUv.y) * 0.08;
+          buildingColor += vec3(0.2, 0.15, 0.1) * glassReflect;
         }
 
         // Window grid
@@ -654,16 +555,16 @@ function createSkyline(scene: THREE.Scene): void {
                          * step(0.15, windowGrid.y) * (1.0 - step(0.85, windowGrid.y));
 
         vec2 windowId = floor(vUv * vec2(5.0, 8.0));
-        float lit = step(0.6, hash(windowId * 17.31 + bid * 100.0));
+        float lit = step(0.45, hash(windowId * 17.31 + bid * 100.0)); // ~55% of windows lit
 
-        // Window colors
+        // Window colors — bright against dark facades
         vec3 warmLight = vec3(1.0, 0.85, 0.5);
         vec3 coolLight = vec3(0.6, 0.8, 1.0);
         vec3 orangeLight = vec3(1.0, 0.6, 0.2);
         float colorChoice = hash(windowId * 29.7 + bid * 50.0);
         vec3 windowColor = colorChoice < 0.5 ? warmLight : (colorChoice < 0.8 ? coolLight : orangeLight);
-        windowColor *= 0.22 * windowMask * lit;
-        windowColor *= smoothstep(0.0, 0.25, vUv.y); // ground floors darker
+        windowColor *= 0.4 * windowMask * lit;
+        windowColor *= smoothstep(0.0, 0.2, vUv.y); // ground floors darker
 
         // Aircraft warning lights
         float blink = step(0.5, sin(uTime * 3.0 + bid * 6.28)) * 0.5 + 0.5;
@@ -672,8 +573,8 @@ function createSkyline(scene: THREE.Scene): void {
 
         vec3 finalColor = buildingColor + windowColor + redLight;
 
-        // Atmospheric perspective — slight haze
-        finalColor = mix(finalColor, vec3(0.5, 0.42, 0.4), 0.12);
+        // Atmospheric perspective — darker dusk haze
+        finalColor = mix(finalColor, vec3(0.15, 0.12, 0.12), 0.08);
 
         gl_FragColor = vec4(finalColor, 1.0);
       }
@@ -702,7 +603,7 @@ function createSkyline(scene: THREE.Scene): void {
     const cDist = Math.abs(t - 0.5) * 2;
     if (cDist < 0.3) h *= cDist / 0.3;
 
-    fgPositions.push(x - w * 0.5, -2, fgZ, x + w * 0.5, -2, fgZ, x + w * 0.5, h, fgZ, x - w * 0.5, h, fgZ);
+    fgPositions.push(x - w * 0.5, -10, fgZ, x + w * 0.5, -10, fgZ, x + w * 0.5, h, fgZ, x - w * 0.5, h, fgZ);
     fgUvs.push(0, 0, w / 8, 0, w / 8, h / 8, 0, h / 8);
     const fid = seed(i * 17.3);
     fgIds.push(fid, fid, fid, fid);
@@ -740,24 +641,24 @@ function createSkyline(scene: THREE.Scene): void {
 
       void main() {
         float bid = vBuildingId;
-        // Low-rise: stucco, brick, painted walls
-        vec3 stucco = vec3(0.55, 0.50, 0.45);
-        vec3 brick = vec3(0.45, 0.28, 0.22);
-        vec3 painted = vec3(0.52, 0.52, 0.48);
+        // Low-rise: darker at dusk
+        vec3 stucco = vec3(0.22, 0.20, 0.18);
+        vec3 brick = vec3(0.20, 0.12, 0.10);
+        vec3 painted = vec3(0.24, 0.22, 0.20);
         vec3 buildingColor = bid < 0.33 ? stucco : (bid < 0.66 ? brick : painted);
-        buildingColor += (hash(vec2(bid * 100.0, 0.0)) - 0.5) * 0.06;
+        buildingColor += (hash(vec2(bid * 100.0, 0.0)) - 0.5) * 0.04;
 
-        // Simple windows
+        // Windows — some lit
         vec2 wg = fract(vUv * vec2(4.0, 6.0));
         float wm = step(0.25, wg.x) * (1.0 - step(0.75, wg.x))
                   * step(0.2, wg.y) * (1.0 - step(0.8, wg.y));
         vec2 wid = floor(vUv * vec2(4.0, 6.0));
-        float lit = step(0.7, hash(wid * 13.3 + bid * 80.0));
-        vec3 wc = vec3(0.9, 0.75, 0.45) * 0.18 * wm * lit;
+        float lit = step(0.55, hash(wid * 13.3 + bid * 80.0));
+        vec3 wc = vec3(1.0, 0.8, 0.45) * 0.3 * wm * lit;
 
         vec3 finalColor = buildingColor + wc;
-        // Slight haze
-        finalColor = mix(finalColor, vec3(0.48, 0.42, 0.4), 0.08);
+        // Dark dusk haze
+        finalColor = mix(finalColor, vec3(0.12, 0.10, 0.10), 0.06);
         gl_FragColor = vec4(finalColor, 1.0);
       }
     `,
@@ -768,32 +669,8 @@ function createSkyline(scene: THREE.Scene): void {
   scene.add(fgBuildings);
   (scene as any)._fgBuildings = fgBuildings;
 
-  // --- Haze layers between city layers ---
-  const createHazeLayer = (z: number, y: number, height: number, opacity: number): void => {
-    const hGeo = new THREE.PlaneGeometry(1200, height);
-    const hMat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(0.6, 0.52, 0.48),
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const haze = new THREE.Mesh(hGeo, hMat);
-    haze.position.set(0, y, z);
-    scene.add(haze);
-  };
-
-  // Haze between mountains and suburbs
-  createHazeLayer(530, 15, 50, 0.15);
-  // Haze between suburbs and downtown
-  createHazeLayer(440, 8, 30, 0.08);
 }
 
-// Smoothstep helper for JS
-function smoothstepJS(edge0: number, edge1: number, x: number): number {
-  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-  return t * t * (3 - 2 * t);
-}
 
 // ============================================================
 // PALM TREES — procedural trunks + fronds with wind sway
@@ -802,115 +679,131 @@ function smoothstepJS(edge0: number, edge1: number, x: number): number {
 function createPalmTrees(scene: THREE.Scene): void {
   const treeCount = 28;
   const treeGroup = new THREE.Group();
+  scene.add(treeGroup);
+  (scene as any)._palmTrees = treeGroup;
 
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9, metalness: 0.0 });
-  const frondMat = new THREE.MeshStandardMaterial({
-    color: 0x2d5a1e,
-    roughness: 0.7,
-    metalness: 0.0,
-    side: THREE.DoubleSide,
-  });
-
-  // Deterministic placement
   const rng = (i: number, offset: number) => {
     const s = Math.sin(i * 127.1 + offset * 311.7) * 43758.5453;
     return s - Math.floor(s);
   };
 
+  // Camera at (0, 8, 12) looking toward -Z (sea).
+  // Trees visible to the sides and behind.
+  // Hardcode a few nearby trees we know should be visible
+  // Camera at (0,8,12). Trees must NOT be at z≈12 or they're at the camera.
+  // Nearby = z=25-50 (visible looking inland) and z=-5 to 5 (visible looking at ocean)
+  const placements: { x: number; z: number; height: number; rotY: number }[] = [
+    // Trees well behind the player
+    { x: -10, z: 55, height: 16, rotY: 0.5 },
+    { x: 12, z: 60, height: 18, rotY: 1.2 },
+    { x: -18, z: 70, height: 14, rotY: 2.0 },
+    { x: 20, z: 65, height: 17, rotY: 3.5 },
+    { x: -8, z: 75, height: 16, rotY: 4.1 },
+    { x: 15, z: 80, height: 18, rotY: 5.0 },
+    { x: -25, z: 50, height: 14, rotY: 0.8 },
+    { x: 22, z: 55, height: 17, rotY: 2.5 },
+    { x: -14, z: 85, height: 13, rotY: 1.5 },
+    { x: 28, z: 48, height: 16, rotY: 4.0 },
+  ];
   for (let i = 0; i < treeCount; i++) {
-    const x = (rng(i, 1) - 0.5) * 200;
-    const z = 20 + rng(i, 2) * 110;
-
-    // Skip if too close to turret
-    if (Math.abs(x) < 8 && z < 20) continue;
-
-    const height = 10 + rng(i, 3) * 10;
-    const lean = (rng(i, 4) - 0.5) * 0.3;
-    const leanDir = rng(i, 5) * Math.PI * 2;
-
-    // Build trunk as a series of segments for a natural curve
-    const segments = 8;
-    const segH = height / segments;
-    const tree = new THREE.Group();
-
-    for (let s = 0; s < segments; s++) {
-      const t0 = s / segments;
-      const t1 = (s + 1) / segments;
-      const r0 = 0.25 * (1 - t0 * 0.6);
-      const r1 = 0.25 * (1 - t1 * 0.6);
-      const segGeo = new THREE.CylinderGeometry(r1, r0, segH, 6);
-      const seg = new THREE.Mesh(segGeo, trunkMat);
-
-      const midT = (t0 + t1) * 0.5;
-      const bendAmount = lean * midT * midT;
-      seg.position.set(
-        Math.cos(leanDir) * bendAmount * height,
-        t0 * height + segH * 0.5,
-        Math.sin(leanDir) * bendAmount * height + z
-      );
-      seg.position.x += x;
-
-      // Tilt each segment progressively
-      const tiltAngle = lean * midT * 2;
-      seg.rotation.x = Math.sin(leanDir) * tiltAngle;
-      seg.rotation.z = -Math.cos(leanDir) * tiltAngle;
-
-      tree.add(seg);
-    }
-
-    // Crown position (top of trunk with lean)
-    const crownX = x + Math.cos(leanDir) * lean * height;
-    const crownY = height;
-    const crownZ = z + Math.sin(leanDir) * lean * height;
-
-    // Fronds — 6-8 per tree
-    const frondCount = 6 + Math.floor(rng(i, 6) * 3);
-    for (let f = 0; f < frondCount; f++) {
-      const angle = (f / frondCount) * Math.PI * 2 + rng(i, 7 + f) * 0.3;
-      const frondLength = 4 + rng(i, 20 + f) * 3;
-      const droop = 0.3 + rng(i, 30 + f) * 0.5;
-
-      // Frond as a tapered plane
-      const frondGeo = new THREE.PlaneGeometry(0.8, frondLength, 1, 4);
-      const posArr = frondGeo.attributes.position;
-      for (let v = 0; v < posArr.count; v++) {
-        const vy = posArr.getY(v);
-        const t = (vy / frondLength) + 0.5; // 0 at base, 1 at tip
-        // Taper width
-        const scale = 1.0 - t * 0.8;
-        posArr.setX(v, posArr.getX(v) * scale);
-        // Droop
-        posArr.setZ(v, -t * t * droop * frondLength);
-      }
-      posArr.needsUpdate = true;
-      frondGeo.computeVertexNormals();
-
-      const frond = new THREE.Mesh(frondGeo, frondMat);
-      frond.position.set(crownX, crownY, crownZ);
-      frond.rotation.set(-0.3, angle, 0);
-      frond.userData.windPhase = rng(i, 40 + f) * Math.PI * 2;
-      frond.userData.baseRotX = frond.rotation.x;
-      tree.add(frond);
-    }
-
-    // Coconut cluster (small spheres near crown)
-    const coconutMat = new THREE.MeshStandardMaterial({ color: 0x4a3520, roughness: 0.8 });
-    for (let c = 0; c < 3; c++) {
-      const coconut = new THREE.Mesh(new THREE.SphereGeometry(0.15, 6, 6), coconutMat);
-      const ca = rng(i, 50 + c) * Math.PI * 2;
-      coconut.position.set(
-        crownX + Math.cos(ca) * 0.4,
-        crownY - 0.3 - rng(i, 55 + c) * 0.3,
-        crownZ + Math.sin(ca) * 0.4
-      );
-      tree.add(coconut);
-    }
-
-    treeGroup.add(tree);
+    const x = (rng(i, 1) - 0.5) * 300;
+    const z = 20 + rng(i, 2) * 100;
+    if (Math.abs(x) < 20) continue;
+    if (z < 45) continue; // keep all trees well behind the player
+    const height = 10 + rng(i, 3) * 8;
+    const rotY = rng(i, 5) * Math.PI * 2;
+    placements.push({ x, z, height, rotY });
   }
 
-  scene.add(treeGroup);
-  (scene as any)._palmTrees = treeGroup;
+  const mtlLoader = new MTLLoader();
+  mtlLoader.setPath('models/palmtree/');
+  mtlLoader.load('Date Palm.mtl', (materials) => {
+    materials.preload();
+    const objLoader = new OBJLoader();
+    objLoader.setMaterials(materials);
+    objLoader.setPath('models/palmtree/');
+    objLoader.load('Date Palm.obj', (obj) => {
+      tintPalmLeaves(obj);
+      placePalmTrees(obj, placements, treeGroup);
+    });
+  }, undefined, () => {
+    // MTL failed — load OBJ alone
+    const objLoader = new OBJLoader();
+    objLoader.setPath('models/palmtree/');
+    objLoader.load('Date Palm.obj', (obj) => {
+      obj.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0x5c4033, roughness: 0.8,
+          });
+        }
+      });
+      tintPalmLeaves(obj);
+      placePalmTrees(obj, placements, treeGroup);
+    });
+  });
+}
+
+function tintPalmLeaves(obj: THREE.Object3D): void {
+  // The model uses one material for everything. Clone it and tint green for leaves.
+  // Since we can't distinguish trunk from leaves by material, we tint the whole
+  // model with a green color multiply — the trunk texture will stay brownish,
+  // lighter parts (leaves) will go green.
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      const mat = child.material as THREE.MeshPhongMaterial;
+      if (mat && mat.color) {
+        mat.color.setHex(0x4a7a3a); // green tint
+      }
+    }
+  });
+}
+
+function placePalmTrees(
+  obj: THREE.Object3D,
+  placements: { x: number; z: number; height: number; rotY: number }[],
+  treeGroup: THREE.Group,
+): void {
+  // Measure raw model
+  obj.updateMatrixWorld(true);
+  const rawBox = new THREE.Box3().setFromObject(obj);
+  const rawSize = rawBox.getSize(new THREE.Vector3());
+
+  // Find tallest axis — that's the trunk
+  const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z);
+
+  // Build a template: inner group with rotation to stand upright, centered
+  const inner = new THREE.Group();
+  inner.add(obj);
+
+  if (rawSize.z >= rawSize.y && rawSize.z >= rawSize.x) {
+    obj.rotation.x = -Math.PI / 2; // Z was tallest, rotate to Y-up
+  } else if (rawSize.x >= rawSize.y && rawSize.x >= rawSize.z) {
+    obj.rotation.z = Math.PI / 2; // X was tallest
+  }
+
+  inner.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(inner);
+  const center = box.getCenter(new THREE.Vector3());
+  // Shift so base is at origin
+  inner.position.set(-center.x, -box.min.y, -center.z);
+
+  const modelHeight = box.getSize(new THREE.Vector3()).y;
+  console.log('Palm model height after rotation:', modelHeight.toFixed(1));
+
+  for (const p of placements) {
+    // Outer wrapper per tree — handles position, scale, Y rotation
+    const wrapper = new THREE.Group();
+    const tree = inner.clone();
+    wrapper.add(tree);
+    const s = p.height / modelHeight;
+    wrapper.scale.setScalar(s);
+    wrapper.position.set(p.x, 0, p.z);
+    wrapper.rotation.y = p.rotY;
+    treeGroup.add(wrapper);
+  }
+
+  console.log('Placed', placements.length, 'palm trees');
 }
 
 // ============================================================
@@ -1266,6 +1159,16 @@ export function updateEnvironment(scene: THREE.Scene, time: number): void {
   const haze = (scene as any)._haze as THREE.Mesh | undefined;
   if (haze) {
     (haze.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
+  }
+
+  // Ship bobbing
+  const ship = (scene as any)._ship as THREE.Group | undefined;
+  if (ship) {
+    const baseY = ship.userData.baseY as number;
+    const phase = ship.userData.bobPhase as number;
+    ship.position.y = baseY + Math.sin(time * 0.6 + phase) * 0.4;
+    ship.rotation.x = Math.sin(time * 0.8 + phase + 1) * 0.015;
+    ship.rotation.z = Math.sin(time * 0.5 + phase + 2) * 0.01;
   }
 
   // Palm tree frond wind sway
