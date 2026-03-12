@@ -180,13 +180,15 @@ export class Game {
       }
     });
 
-    // Play.fun SDK
-    try {
-      this.playfunSDK = new OpenGameSDK({ ui: { usePointsWidget: true } });
-      await this.playfunSDK.init({ gameId: '10b9288f-e86f-4c4f-9dfd-dd91ffa2d560' });
-      console.log('Play.fun SDK ready');
-    } catch (e) {
-      console.warn('Play.fun SDK failed to init:', e);
+    // Play.fun SDK — only when embedded on play.fun
+    if (typeof OpenGameSDK !== 'undefined') {
+      try {
+        this.playfunSDK = new OpenGameSDK({ ui: { usePointsWidget: true } });
+        await this.playfunSDK.init({ gameId: '10b9288f-e86f-4c4f-9dfd-dd91ffa2d560' });
+        console.log('Play.fun SDK ready');
+      } catch (e) {
+        console.warn('Play.fun SDK failed to init:', e);
+      }
     }
 
     // Ready
