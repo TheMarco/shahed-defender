@@ -4,6 +4,8 @@ export type GameState = 'BOOT' | 'LOADING' | 'MENU' | 'PLAYING' | 'WAVE_TRANSITI
 
 export type DroneState = 'alive' | 'dying' | 'breached' | 'dead';
 
+export type DronePath = 'straight' | 'arc' | 'scurve' | 'spiral' | 'dive_swoop';
+
 export interface DroneData {
   id: number;
   state: DroneState;
@@ -23,6 +25,15 @@ export interface DroneData {
   propAngle: number;
   hitSphere: THREE.Sphere;
   dyingTimer: number;
+  // Path system
+  pathType: DronePath;
+  pathAmplitude: number;    // how wide the curve is (world units)
+  pathRight: THREE.Vector3; // perpendicular to velocity (horizontal)
+  pathUp: THREE.Vector3;    // perpendicular to velocity (vertical-ish)
+  totalDistance: number;     // total distance from spawn to target
+  distanceTraveled: number; // how far along the path
+  bankAmount: number;       // 0 = no banking, >0 = banks when turning
+  prevLateralOffset: number; // for computing bank from lateral delta
 }
 
 export interface WeaponData {

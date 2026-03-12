@@ -503,38 +503,93 @@ export class EffectsManager {
     createShockwave(Math.PI * 0.3, Math.PI * 0.5, 0, 0xff7722);
     createShockwave(Math.PI * 0.7, Math.PI * 0.2, 0, 0xff6611);
 
-    // ===== DEBRIS (0-4s): 40 chunks =====
+    // ===== DEBRIS (0-4s): 70 chunks — mix of box, panel, and shard shapes =====
     interface DebrisChunk {
       mesh: THREE.Mesh; vel: THREE.Vector3;
       rotAxis: THREE.Vector3; rotSpeed: number; trailTimer: number;
     }
     const debris: DebrisChunk[] = [];
-    for (let i = 0; i < 40; i++) {
-      const sx = 0.1 + Math.random() * 0.7;
-      const sy = 0.05 + Math.random() * 0.4;
-      const sz = 0.1 + Math.random() * 0.6;
-      const geo = new THREE.BoxGeometry(sx, sy, sz);
-      const shade = 0.1 + Math.random() * 0.2;
+    for (let i = 0; i < 78; i++) {
+      let geo: THREE.BufferGeometry;
+      if (i < 8) {
+        // Large fragments — wing sections, fuselage halves, visible from far away
+        const sx = 1.5 + Math.random() * 2.5;
+        const sy = 0.15 + Math.random() * 0.3;
+        const sz = 0.8 + Math.random() * 1.5;
+        geo = i < 4
+          ? new THREE.BoxGeometry(sx, sy, sz)
+          : new THREE.PlaneGeometry(sx, sz);
+      } else if (i < 30) {
+        // Box chunks — fuselage fragments
+        const sx = 0.1 + Math.random() * 0.7;
+        const sy = 0.05 + Math.random() * 0.4;
+        const sz = 0.1 + Math.random() * 0.6;
+        geo = new THREE.BoxGeometry(sx, sy, sz);
+      } else if (i < 50) {
+        // Flat panels — wing/body panels ripped off
+        const pw = 0.4 + Math.random() * 1.2;
+        const ph = 0.3 + Math.random() * 0.8;
+        geo = new THREE.PlaneGeometry(pw, ph);
+      } else {
+        // Thin shards — small sharp fragments
+        const sw = 0.05 + Math.random() * 0.15;
+        const sh = 0.2 + Math.random() * 0.8;
+        const sd = 0.05 + Math.random() * 0.1;
+        geo = new THREE.BoxGeometry(sw, sh, sd);
+      }
+      const shade = 0.08 + Math.random() * 0.2;
+      // Some pieces are darker (carbon/plastic), some metallic
+      const isMetal = Math.random() > 0.4;
       const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(shade, shade * 0.8, shade * 0.6),
-        roughness: 0.8, metalness: 0.6,
+        color: isMetal
+          ? new THREE.Color(shade * 1.2, shade * 1.1, shade * 0.9)
+          : new THREE.Color(shade * 0.6, shade * 0.55, shade * 0.5),
+        roughness: isMetal ? 0.4 : 0.9,
+        metalness: isMetal ? 0.8 : 0.2,
         transparent: true, opacity: 1,
+        side: THREE.DoubleSide,
         emissive: new THREE.Color(0.6, 0.25, 0),
         emissiveIntensity: 1.0,
       });
       extraMaterials.push(mat);
       const mesh = new THREE.Mesh(geo, mat);
+      const isLarge = i < 8;
       const angle = Math.random() * Math.PI * 2;
       const pitch = -0.2 + Math.random() * 1.4;
-      const speed = 30 + Math.random() * 70;
+      const speed = isLarge ? 12 + Math.random() * 30 : 20 + Math.random() * 90;
       const vel = new THREE.Vector3(
         Math.cos(angle) * Math.cos(pitch) * speed,
-        Math.sin(pitch) * speed + 10,
+        Math.sin(pitch) * speed + (isLarge ? 15 : 10),
         Math.sin(angle) * Math.cos(pitch) * speed,
       );
       const rotAxis = new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize();
       group.add(mesh);
-      debris.push({ mesh, vel, rotAxis, rotSpeed: 5 + Math.random() * 20, trailTimer: 0 });
+      debris.push({ mesh, vel, rotAxis, rotSpeed: isLarge ? 2 + Math.random() * 6 : 5 + Math.random() * 25, trailTimer: 0 });
+    }
+
+    // ===== SHRAPNEL (0-2s): 50 fast tiny bright fragments =====
+    interface ShrapnelPiece { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vel: THREE.Vector3; }
+    const shrapnel: ShrapnelPiece[] = [];
+    for (let i = 0; i < 50; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: this.sparkTexture,
+        color: new THREE.Color().setHSL(0.06 + Math.random() * 0.08, 0.6, 0.4 + Math.random() * 0.3).multiplyScalar(2.0),
+        transparent: true, opacity: 1,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      spriteMaterials.push(mat);
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.setScalar(0.15 + Math.random() * 0.25);
+      const angle = Math.random() * Math.PI * 2;
+      const pitch = Math.random() * Math.PI;
+      const speed = 60 + Math.random() * 120;
+      const vel = new THREE.Vector3(
+        Math.cos(angle) * Math.sin(pitch) * speed,
+        Math.cos(pitch) * speed * 0.6 + 15,
+        Math.sin(angle) * Math.sin(pitch) * speed,
+      );
+      group.add(sprite);
+      shrapnel.push({ sprite, mat, vel });
     }
 
     // ===== SMOKE (0.1-6s): 12 smoke sprites =====
@@ -562,10 +617,10 @@ export class EffectsManager {
       smokeParticles.push({ sprite, mat, vel, startDelay: 0.1 + i * 0.08, maxScale });
     }
 
-    // ===== EMBERS (0-3.5s): 80 bright sparks =====
+    // ===== EMBERS (0-3.5s): 120 bright sparks =====
     interface EmberParticle { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vel: THREE.Vector3; }
     const emberParticles: EmberParticle[] = [];
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 120; i++) {
       const mat = new THREE.SpriteMaterial({
         map: this.sparkTexture,
         color: new THREE.Color().setHSL(0.04 + Math.random() * 0.1, 1, 0.5 + Math.random() * 0.5).multiplyScalar(3.0),
@@ -861,6 +916,20 @@ export class EffectsManager {
           }
         }
 
+        // -- Shrapnel (0-2s) — fast bright fragments --
+        for (const sp of shrapnel) {
+          if (elapsed < 2.0) {
+            sp.sprite.position.add(sp.vel.clone().multiplyScalar(dt));
+            sp.vel.y -= 30 * dt;
+            sp.vel.multiplyScalar(0.96);
+            const st = elapsed / 2.0;
+            sp.mat.opacity = Math.max(0, 1 - st * st);
+            sp.sprite.scale.setScalar((0.15 + Math.random() * 0.1) * (1 - st * 0.5));
+          } else {
+            sp.mat.opacity = 0;
+          }
+        }
+
         // -- Secondary explosions --
         for (const sb of secondaryBursts) {
           if (elapsed >= sb.delay && elapsed < sb.delay + sb.duration) {
@@ -932,6 +1001,302 @@ export class EffectsManager {
         for (const mat of extraMaterials) { mat.dispose(); }
       },
     });
+  }
+
+  /**
+   * Spawn a dramatic first-person gun explosion attached to the camera.
+   * Uses its own real-time clock so it isn't affected by deathTimeScale.
+   */
+  spawnGunExplosion(camera: THREE.PerspectiveCamera, gunGroup: THREE.Group): void {
+    gunGroup.visible = false;
+
+    const gunWorldPos = new THREE.Vector3();
+    gunGroup.getWorldPosition(gunWorldPos);
+
+    const group = new THREE.Group();
+    group.position.copy(gunWorldPos);
+    const extraMaterials: THREE.Material[] = [];
+    const spriteMaterials: THREE.SpriteMaterial[] = [];
+    const GRAVITY = 9.8;
+
+    // Helper: direction biased into camera view (forward = -Z, spread X, upward Y)
+    const viewDir = (): THREE.Vector3 => {
+      const x = (Math.random() - 0.5) * 2;
+      const y = 0.15 + Math.random() * 0.85;
+      const z = -(0.15 + Math.random() * 0.85);
+      return new THREE.Vector3(x, y, z).normalize();
+    };
+
+    // ===== GUN DEBRIS — 150 metal fragments =====
+    interface GunDebris {
+      mesh: THREE.Mesh; vel: THREE.Vector3;
+      rotAxis: THREE.Vector3; rotSpeed: number;
+    }
+    const gunDebris: GunDebris[] = [];
+    for (let i = 0; i < 150; i++) {
+      let geo: THREE.BufferGeometry;
+      if (i < 5) {
+        // Massive gun parts — thick barrel halves, big receiver slabs
+        geo = i < 3
+          ? new THREE.CylinderGeometry(0.12, 0.10, 0.8 + Math.random() * 0.6, 8)
+          : new THREE.BoxGeometry(0.5 + Math.random() * 0.3, 0.15 + Math.random() * 0.1, 0.25 + Math.random() * 0.2);
+      } else if (i < 15) {
+        // Large chunks — barrel sections, housing plates, grip halves
+        const t = Math.floor(Math.random() * 3);
+        if (t === 0) geo = new THREE.CylinderGeometry(0.08, 0.06, 0.4 + Math.random() * 0.4, 6);
+        else if (t === 1) geo = new THREE.BoxGeometry(0.3 + Math.random() * 0.2, 0.12 + Math.random() * 0.08, 0.2 + Math.random() * 0.15);
+        else geo = new THREE.BoxGeometry(0.25 + Math.random() * 0.15, 0.25 + Math.random() * 0.15, 0.04 + Math.random() * 0.03);
+      } else if (i < 50) {
+        // Medium panels, bolts, brackets
+        const t = Math.floor(Math.random() * 3);
+        if (t === 0) geo = new THREE.BoxGeometry(0.15 + Math.random() * 0.15, 0.05 + Math.random() * 0.04, 0.12 + Math.random() * 0.12);
+        else if (t === 1) geo = new THREE.CylinderGeometry(0.025, 0.025, 0.1 + Math.random() * 0.12, 5);
+        else geo = new THREE.BoxGeometry(0.18 + Math.random() * 0.1, 0.18 + Math.random() * 0.1, 0.02);
+      } else {
+        // Small shards
+        const s = 0.05 + Math.random() * 0.08;
+        geo = new THREE.BoxGeometry(s, s * (0.3 + Math.random()), s * (0.3 + Math.random()));
+      }
+
+      const isMetal = Math.random() > 0.15;
+      const shade = 0.12 + Math.random() * 0.35;
+      const mat = new THREE.MeshStandardMaterial({
+        color: isMetal
+          ? new THREE.Color(shade * 1.3, shade * 1.1, shade * 0.8)
+          : new THREE.Color(shade * 0.3, shade * 0.3, shade * 0.25),
+        roughness: isMetal ? 0.25 : 0.7,
+        metalness: isMetal ? 0.95 : 0.2,
+        transparent: true, opacity: 1, side: THREE.DoubleSide,
+        emissive: new THREE.Color(0.7, 0.3, 0.05),
+        emissiveIntensity: 0.8,
+      });
+      extraMaterials.push(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+
+      const isMassive = i < 5;
+      const isLarge = i >= 5 && i < 15;
+      const isMedium = i >= 15 && i < 50;
+      const speed = isMassive ? 3 + Math.random() * 5
+        : isLarge ? 5 + Math.random() * 8
+        : isMedium ? 8 + Math.random() * 14
+        : 10 + Math.random() * 22;
+      const vel = viewDir().multiplyScalar(speed);
+
+      const rotAxis = new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize();
+      group.add(mesh);
+      gunDebris.push({
+        mesh, vel, rotAxis,
+        rotSpeed: isMassive ? 2 + Math.random() * 4 : isLarge ? 5 + Math.random() * 8 : 12 + Math.random() * 25,
+      });
+    }
+
+    // ===== FIRE TRAILS — attached to first 50 debris pieces =====
+    interface FireTrail { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; baseScale: number; }
+    const fireTrails: FireTrail[] = [];
+    for (let i = 0; i < 50; i++) {
+      const debris = gunDebris[i];
+      const isBig = i < 15;
+      const mat = new THREE.SpriteMaterial({
+        map: this.fireTexture,
+        color: new THREE.Color().setHSL(0.06 + Math.random() * 0.06, 1, 0.35 + Math.random() * 0.15),
+        transparent: true, opacity: 0.7,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      spriteMaterials.push(mat);
+      const sprite = new THREE.Sprite(mat);
+      const baseScale = isBig ? 0.6 + Math.random() * 0.6 : 0.25 + Math.random() * 0.35;
+      sprite.scale.setScalar(baseScale);
+      debris.mesh.add(sprite);
+      fireTrails.push({ sprite, mat, baseScale });
+    }
+
+    // ===== FREE FIRE — rises from explosion origin =====
+    interface FireBall { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vel: THREE.Vector3; maxScale: number; }
+    const fireballs: FireBall[] = [];
+    for (let i = 0; i < 12; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: this.fireTexture,
+        color: new THREE.Color().setHSL(0.04 + Math.random() * 0.08, 1, 0.3 + Math.random() * 0.15),
+        transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      spriteMaterials.push(mat);
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.set(
+        (Math.random() - 0.5) * 0.5,
+        (Math.random() - 0.3) * 0.3,
+        -(Math.random() * 0.5),
+      );
+      const vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 2,
+        2 + Math.random() * 3,
+        -(Math.random() * 2),
+      );
+      group.add(sprite);
+      fireballs.push({ sprite, mat, vel, maxScale: 1.5 + Math.random() * 2.0 });
+    }
+
+    // ===== SPARKS — 150 hot dots =====
+    interface SparkP { mesh: THREE.Mesh; vel: THREE.Vector3; }
+    const sparks: SparkP[] = [];
+    for (let i = 0; i < 150; i++) {
+      const geo = new THREE.SphereGeometry(0.015 + Math.random() * 0.03, 4, 4);
+      const brightness = 0.5 + Math.random() * 0.5;
+      const mat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(brightness, brightness * 0.5, brightness * 0.1),
+        transparent: true, opacity: 1,
+      });
+      extraMaterials.push(mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      const speed = 10 + Math.random() * 30;
+      const vel = viewDir().multiplyScalar(speed);
+      group.add(mesh);
+      sparks.push({ mesh, vel });
+    }
+
+    // ===== SMOKE — 30 thick dark plumes (NormalBlending, no bloom) =====
+    interface SmokeP { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vel: THREE.Vector3; delay: number; maxScale: number; }
+    const smoke: SmokeP[] = [];
+    for (let i = 0; i < 30; i++) {
+      const darkness = 0.06 + Math.random() * 0.1;
+      const mat = new THREE.SpriteMaterial({
+        map: this.smokeTexture,
+        color: new THREE.Color(darkness, darkness * 0.9, darkness * 0.8),
+        transparent: true, opacity: 0,
+        blending: THREE.NormalBlending, depthWrite: false,
+      });
+      spriteMaterials.push(mat);
+      const sprite = new THREE.Sprite(mat);
+      sprite.position.set(
+        (Math.random() - 0.5) * 0.5,
+        (Math.random() - 0.3) * 0.3,
+        -(Math.random() * 0.5),
+      );
+      const vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 2.0,
+        1.5 + Math.random() * 3.0,
+        -(0.5 + Math.random() * 2.0),
+      );
+      group.add(sprite);
+      smoke.push({ sprite, mat, vel, delay: i * 0.04, maxScale: 3.0 + Math.random() * 2.5 });
+    }
+
+    // ===== BRIEF POINT LIGHT =====
+    const light = new THREE.PointLight(0xffaa33, 20, 30);
+    light.position.copy(gunWorldPos);
+    this.scene.add(light);
+    let lightRemoved = false;
+
+    this.scene.add(group);
+
+    // Real-time clock — unaffected by deathTimeScale
+    const startTime = performance.now();
+    const lifetime = 5.0;
+    let prevTime = startTime;
+
+    this.effects.push({
+      mesh: group,
+      lifetime: 999,
+      elapsed: 0,
+      update: () => {
+        const now = performance.now();
+        const realDt = Math.min((now - prevTime) / 1000, 0.05);
+        const realElapsed = (now - startTime) / 1000;
+        prevTime = now;
+
+        if (realElapsed >= lifetime) return;
+
+        // -- Debris: real gravity, tumbling, cooling glow --
+        for (const d of gunDebris) {
+          d.mesh.position.add(d.vel.clone().multiplyScalar(realDt));
+          d.vel.y -= GRAVITY * realDt;
+          d.vel.multiplyScalar(1 - 0.15 * realDt); // light air drag
+          d.mesh.rotateOnAxis(d.rotAxis, d.rotSpeed * realDt);
+
+          const mat = d.mesh.material as THREE.MeshStandardMaterial;
+          const tLife = realElapsed / lifetime;
+          mat.opacity = tLife < 0.75 ? 1 : Math.max(0, 1 - (tLife - 0.75) / 0.25);
+          const cool = Math.max(0, 1 - realElapsed * 0.35);
+          mat.emissiveIntensity = cool * 0.8;
+          mat.emissive.setRGB(0.7 * cool, 0.25 * cool, 0.02 * cool);
+        }
+
+        // -- Fire trails on debris: flicker and fade --
+        for (const ft of fireTrails) {
+          if (realElapsed < 1.8) {
+            const t = realElapsed / 1.8;
+            ft.mat.opacity = Math.max(0, 0.7 * (1 - t * t));
+            ft.sprite.scale.setScalar(ft.baseScale * (1 - t * 0.5) * (0.8 + Math.random() * 0.4));
+          } else {
+            ft.mat.opacity = 0;
+          }
+        }
+
+        // -- Free fireballs: rise from origin --
+        for (const fb of fireballs) {
+          if (realElapsed < 2.0) {
+            const t = realElapsed / 2.0;
+            fb.sprite.position.add(fb.vel.clone().multiplyScalar(realDt));
+            fb.vel.y -= 1.5 * realDt;
+            fb.vel.multiplyScalar(1 - 0.8 * realDt);
+            const curve = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+            fb.mat.opacity = Math.max(0, curve * 0.6 * (0.7 + Math.random() * 0.3));
+            fb.sprite.scale.setScalar(0.3 + curve * fb.maxScale);
+          } else {
+            fb.mat.opacity = 0;
+          }
+        }
+
+        // -- Sparks: real gravity arcing --
+        for (const s of sparks) {
+          s.mesh.position.add(s.vel.clone().multiplyScalar(realDt));
+          s.vel.y -= GRAVITY * realDt;
+          s.vel.multiplyScalar(1 - 1.5 * realDt);
+          const mat = s.mesh.material as THREE.MeshBasicMaterial;
+          const st = realElapsed / 3.0;
+          mat.opacity = st < 1 ? Math.max(0, 1 - st) : 0;
+        }
+
+        // -- Smoke: thick dark clouds billow upward --
+        for (const sp of smoke) {
+          if (realElapsed < sp.delay) continue;
+          const age = realElapsed - sp.delay;
+          const dur = lifetime - sp.delay;
+          const st = age / dur;
+          sp.sprite.position.add(sp.vel.clone().multiplyScalar(realDt));
+          sp.vel.multiplyScalar(1 - 0.8 * realDt);
+          sp.vel.y = Math.max(sp.vel.y * 0.97, 0.2);
+          sp.sprite.scale.setScalar(Math.min(0.3 + age * 2.5, sp.maxScale));
+          let op: number;
+          if (st < 0.06) op = (st / 0.06) * 0.6;
+          else if (st < 0.5) op = 0.6 * (1 - (st - 0.06) / 0.44);
+          else op = 0;
+          sp.mat.opacity = Math.max(0, op);
+        }
+
+        // -- Light: brief flash --
+        if (!lightRemoved) {
+          if (realElapsed < 0.3) {
+            const f = 1 - realElapsed / 0.3;
+            light.intensity = 20 * f * f;
+          } else {
+            this.scene.remove(light); light.dispose(); lightRemoved = true;
+          }
+        }
+      },
+      cleanup: () => {
+        if (!lightRemoved) { this.scene.remove(light); light.dispose(); }
+        for (const mat of spriteMaterials) { mat.dispose(); }
+        for (const mat of extraMaterials) { mat.dispose(); }
+      },
+    });
+
+    setTimeout(() => {
+      const idx = this.effects.findIndex(e => e.mesh === group);
+      if (idx !== -1) {
+        this.effects[idx].elapsed = this.effects[idx].lifetime;
+      }
+    }, lifetime * 1000);
   }
 
   update(dt: number): void {

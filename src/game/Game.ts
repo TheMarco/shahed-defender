@@ -217,6 +217,11 @@ export class Game {
     this.radar.show();
     this.state.setState('PLAYING');
     this.waveManager.startWave(1);
+
+    // Debug: ?explode in URL triggers instant death for testing
+    if (new URLSearchParams(window.location.search).has('explode')) {
+      setTimeout(() => this.gameOver(), 500);
+    }
   }
 
   private restartRun(): void {
@@ -237,6 +242,7 @@ export class Game {
     this.waveManager.reset();
     this.score.reset();
     this.baseHealth.reset();
+    this.turret.gunGroup.visible = true;
     this.turret.reset();
     this.weapon.reset();
     this.hud.reset();
@@ -278,6 +284,9 @@ export class Game {
 
       case 'PLAYING':
       case 'WAVE_TRANSITION': {
+        // Skip all gameplay during death sequence — only effects run
+        if (this.deathSequenceActive) break;
+
         if (this.input.isLocked) {
           this.turret.update(dt, this.input);
           this.weapon.update(dt, this.elapsedTime, this.input, this.turret, this.droneManager);
@@ -367,86 +376,31 @@ export class Game {
     this.impactAlertActive = false;
     this.radar.setAlert(false);
 
-    // Massive initial shake
-    this.turret.applyShake(4.0);
+    // Clear ALL screen overlays so the 3D explosion is fully visible
+    const whiteFlash = document.getElementById('white-flash')!;
+    const damageFlash = document.getElementById('damage-flash')!;
+    const lowHealth = document.getElementById('low-health-overlay')!;
+    const damageVignette = document.getElementById('damage-vignette')!;
+    for (const el of [whiteFlash, damageFlash, lowHealth, damageVignette]) {
+      el.style.transition = 'none';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+    }
 
     // Slow-motion for dramatic effect
     this.deathTimeScale = 0.15;
 
-    // Blinding white flash
-    const whiteFlash = document.getElementById('white-flash')!;
-    whiteFlash.style.transition = 'opacity 0.05s ease';
-    whiteFlash.style.opacity = '1';
-
-    // Red damage overlay pulses
-    const damageFlash = document.getElementById('damage-flash')!;
-    damageFlash.style.transition = 'opacity 0.1s ease';
-    damageFlash.style.opacity = '0.7';
-
-    // Turret/camera base position
-    const basePos = new THREE.Vector3(0, 8, 12);
-
-    // Phase 1: Initial massive explosion right at the turret (0ms)
-    this.effects.spawnExplosion(basePos.clone().add(new THREE.Vector3(0, -2, -2)));
-    this.effects.spawnExplosion(basePos.clone().add(new THREE.Vector3(1, 0, 0)));
-
-    // Phase 2: Cascading explosions spreading outward (200-1200ms)
-    const cascadeExplosions = [
-      { delay: 200, offset: new THREE.Vector3(-4, -1, -5) },
-      { delay: 350, offset: new THREE.Vector3(5, 0, -3) },
-      { delay: 500, offset: new THREE.Vector3(-2, 2, -8) },
-      { delay: 650, offset: new THREE.Vector3(6, -1, -6) },
-      { delay: 800, offset: new THREE.Vector3(-7, 1, -4) },
-      { delay: 950, offset: new THREE.Vector3(3, 3, -10) },
-      { delay: 1100, offset: new THREE.Vector3(-5, -2, -7) },
-      { delay: 1200, offset: new THREE.Vector3(0, 4, -12) },
-    ];
-    for (const e of cascadeExplosions) {
-      setTimeout(() => {
-        this.effects.spawnExplosion(basePos.clone().add(e.offset));
-        this.turret.applyShake(2.0 + Math.random());
-        // Pulse red
-        damageFlash.style.opacity = String(0.3 + Math.random() * 0.4);
-      }, e.delay);
-    }
-
-    // Phase 3: Final big blast (1500ms)
-    setTimeout(() => {
-      this.effects.spawnExplosion(basePos.clone().add(new THREE.Vector3(0, 0, -4)));
-      this.effects.spawnExplosion(basePos.clone().add(new THREE.Vector3(-3, 1, -6)));
-      this.effects.spawnExplosion(basePos.clone().add(new THREE.Vector3(3, -1, -5)));
-      this.turret.applyShake(5.0);
-      whiteFlash.style.transition = 'opacity 0.05s ease';
-      whiteFlash.style.opacity = '0.6';
-    }, 1500);
-
-    // Fade white flash after initial burst
-    setTimeout(() => {
-      whiteFlash.style.transition = 'opacity 0.8s ease';
-      whiteFlash.style.opacity = '0';
-    }, 150);
-
-    // Second white flash for the final blast
-    setTimeout(() => {
-      setTimeout(() => {
-        whiteFlash.style.transition = 'opacity 1.5s ease';
-        whiteFlash.style.opacity = '0';
-      }, 100);
-    }, 1500);
+    // Shake + blow up the gun (uses real-time clock, unaffected by deathTimeScale)
+    this.turret.applyShake(4.0);
+    this.effects.spawnGunExplosion(this.camera, this.turret.gunGroup);
 
     // Gradually ramp time back up
-    setTimeout(() => { this.deathTimeScale = 0.3; }, 600);
-    setTimeout(() => { this.deathTimeScale = 0.5; }, 1200);
-    setTimeout(() => { this.deathTimeScale = 0.8; }, 1800);
-    setTimeout(() => { this.deathTimeScale = 1.0; }, 2200);
+    setTimeout(() => { this.deathTimeScale = 0.3; }, 800);
+    setTimeout(() => { this.deathTimeScale = 0.5; }, 1400);
+    setTimeout(() => { this.deathTimeScale = 0.8; }, 2000);
+    setTimeout(() => { this.deathTimeScale = 1.0; }, 2500);
 
-    // Fade red overlay
-    setTimeout(() => {
-      damageFlash.style.transition = 'opacity 1s ease';
-      damageFlash.style.opacity = '0';
-    }, 2000);
-
-    // Show game over after the full sequence (~3 seconds)
+    // Show game over after the gun explosion plays out (~4.5 seconds)
     setTimeout(() => {
       this.deathSequenceActive = false;
       this.deathTimeScale = 1;
@@ -466,6 +420,6 @@ export class Game {
       } else {
         document.exitPointerLock();
       }
-    }, 3000);
+    }, 4500);
   }
 }
