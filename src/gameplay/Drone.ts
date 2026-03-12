@@ -173,7 +173,7 @@ export function updateDrone(drone: DroneData, dt: number, time: number): void {
   drone.prevLateralOffset = offset.lateral;
 
   // Clamp: never go below ground level (Y=0 is water/sand, keep clearance)
-  const MIN_Y = 2;
+  const MIN_Y = 8;
   const finalPos = drone.position.clone().add(pathOffsetVec);
   finalPos.x += wobbleX;
   finalPos.y += wobbleY;

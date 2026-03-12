@@ -40,10 +40,10 @@ export class DroneManager {
     } else if (pattern < 0.5) {
       // LOW SKIMMER — hugs the water, hard to spot (wave 4+)
       spawnX = randRange(-180, 180);
-      spawnY = randRange(5, 15);
+      spawnY = randRange(12, 22);
       spawnZ = -dist * randRange(0.8, 1.0);
       targetX = randRange(-6, 6);
-      targetY = randRange(4, 8);
+      targetY = randRange(6, 10);
     } else if (pattern < 0.7) {
       // WIDE FLANKER — comes from far left or right (wave 3+)
       const side = Math.random() < 0.5 ? -1 : 1;
