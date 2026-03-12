@@ -20,6 +20,7 @@ export class AudioManager {
   private impactBuffer: AudioBuffer | null = null;
   private shahedBuffer: AudioBuffer | null = null;
   private airRaidBuffer: AudioBuffer | null = null;
+  private impactAlertBuffer: AudioBuffer | null = null;
 
   // Drone motor sound state — one looping source per drone
   private droneMotors: Map<number, {
@@ -27,6 +28,10 @@ export class AudioManager {
     gain: GainNode;
     playbackRate: AudioParam;
   }> = new Map();
+
+  // Impact alert — single global instance
+  private impactAlertSource: AudioBufferSourceNode | null = null;
+  private impactAlertGain: GainNode | null = null;
 
   // Air raid siren state
   private airRaidSource: AudioBufferSourceNode | null = null;
@@ -88,6 +93,7 @@ export class AudioManager {
       'audio/impact.mp3',
       'audio/shahed.mp3',
       'audio/air-raid.mp3',
+      'audio/impact-alert.mp3',
       'audio/music.mp3',
     ];
 
@@ -125,7 +131,7 @@ export class AudioManager {
       }
     };
 
-    const [shot, close, medium, far, impact, shahed, airRaid, music] = await Promise.all([
+    const [shot, close, medium, far, impact, shahed, airRaid, impactAlert, music] = await Promise.all([
       decode('audio/shooting.mp3'),
       decode('audio/explosion-close.mp3'),
       decode('audio/explosion-medium.mp3'),
@@ -133,6 +139,7 @@ export class AudioManager {
       decode('audio/impact.mp3'),
       decode('audio/shahed.mp3'),
       decode('audio/air-raid.mp3'),
+      decode('audio/impact-alert.mp3'),
       decode('audio/music.mp3'),
     ]);
     this.shotBuffer = shot;
@@ -142,6 +149,7 @@ export class AudioManager {
     this.impactBuffer = impact;
     this.shahedBuffer = shahed;
     this.airRaidBuffer = airRaid;
+    this.impactAlertBuffer = impactAlert;
     this.musicBuffer = music;
     this.rawBuffers.clear(); // free memory
   }
@@ -347,12 +355,12 @@ export class AudioManager {
     const t = 1 - Math.min(1, distance / maxDistance);
     const volume = t * t * 0.6; // quadratic for more natural feel — quiet when far, ramps up close
 
-    // Pitch: base 0.8, ramps up in the last 30% of approach (dive-bomber effect)
-    let pitch = 0.8 + normalizedProgress * 0.3; // gentle rise from 0.8 to 1.1
-    if (normalizedProgress > 0.7) {
-      // Last 30%: aggressive pitch increase, like a dive bomber
-      const diveFactor = (normalizedProgress - 0.7) / 0.3; // 0 to 1
-      pitch += diveFactor * 0.8; // up to 1.9 total
+    // Pitch: base 0.8, ramps up approaching breach (dive-bomber effect)
+    let pitch = 0.8 + normalizedProgress * 0.4; // gentle rise from 0.8 to 1.2
+    if (normalizedProgress > 0.6) {
+      // Last 40%: aggressive pitch increase, like a dive bomber
+      const diveFactor = (normalizedProgress - 0.6) / 0.4; // 0 to 1
+      pitch += diveFactor * diveFactor * 1.4; // exponential ramp, up to ~2.6 total
     }
 
     // Smooth the values to avoid clicks
@@ -380,6 +388,39 @@ export class AudioManager {
       this.stopDroneMotor(id);
     }
     this.droneMotors.clear();
+  }
+
+  // --- Impact alert (single global instance) ---
+
+  startImpactAlert(): void {
+    if (this.muted || !this.impactAlertBuffer || this.impactAlertSource) return;
+    const ctx = this.ensureContext();
+
+    const source = ctx.createBufferSource();
+    source.buffer = this.impactAlertBuffer;
+    source.loop = true;
+
+    const gain = ctx.createGain();
+    gain.gain.value = 1.0;
+    source.connect(gain);
+    gain.connect(this.sfxOut);
+    source.start(ctx.currentTime);
+
+    this.impactAlertSource = source;
+    this.impactAlertGain = gain;
+  }
+
+  stopImpactAlert(): void {
+    if (!this.impactAlertSource) return;
+    try {
+      const ctx = this.ensureContext();
+      this.impactAlertGain!.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+      this.impactAlertSource.stop(ctx.currentTime + 0.1);
+    } catch {
+      // Already stopped
+    }
+    this.impactAlertSource = null;
+    this.impactAlertGain = null;
   }
 
   // --- Air raid siren ---
@@ -471,6 +512,7 @@ export class AudioManager {
     this.muted = !this.muted;
     if (this.muted) {
       this.stopAllDroneMotors();
+      this.stopImpactAlert();
       this.stopAirRaid();
       if (this.musicGain) this.musicGain.gain.value = 0;
       if (this.sfxGain) this.sfxGain.gain.value = 0;

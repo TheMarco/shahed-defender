@@ -13,7 +13,7 @@ export class WeaponSystem {
   private effects: EffectsManager;
   private audio: AudioManager;
   private camera: THREE.PerspectiveCamera;
-  onKill: ((scoreValue: number, position: THREE.Vector3) => void) | null = null;
+  onKill: ((scoreValue: number, position: THREE.Vector3, droneId: number) => void) | null = null;
 
   // Heat system
   private heat = 0;
@@ -151,7 +151,7 @@ export class WeaponSystem {
         this.audio.playExplosion(hit.distance);
         turret.applyShake(0.3);
         if (this.onKill) {
-          this.onKill(hit.drone.scoreValue, hit.drone.position.clone());
+          this.onKill(hit.drone.scoreValue, hit.drone.position.clone(), hit.drone.id);
         }
       }
     }

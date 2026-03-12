@@ -6,6 +6,7 @@ export class Radar {
   private ctx: CanvasRenderingContext2D;
   private size = 160;
   private range = CONFIG.drone.spawnDistance;
+  private _alertActive = false;
 
   constructor() {
     this.canvas = document.createElement('canvas');
@@ -36,6 +37,10 @@ export class Radar {
     this.canvas.style.display = 'none';
   }
 
+  setAlert(active: boolean): void {
+    this._alertActive = active;
+  }
+
   update(yaw: number, drones: DroneData[]): void {
     const ctx = this.ctx;
     const cx = this.size / 2;
@@ -45,14 +50,22 @@ export class Radar {
     // Clear
     ctx.clearRect(0, 0, this.size, this.size);
 
-    // Background circle
+    // Background circle — flash red when alert is active
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(0, 15, 0, 0.7)';
+    if (this._alertActive) {
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.008);
+      ctx.fillStyle = `rgba(${Math.floor(40 + 60 * pulse)}, 0, 0, 0.7)`;
+      // Red border pulse
+      this.canvas.style.borderColor = `rgba(255, ${Math.floor(40 * (1 - pulse))}, 0, ${0.5 + 0.4 * pulse})`;
+    } else {
+      ctx.fillStyle = 'rgba(0, 15, 0, 0.7)';
+      this.canvas.style.borderColor = 'rgba(0, 255, 80, 0.4)';
+    }
     ctx.fill();
 
     // Range rings
-    ctx.strokeStyle = 'rgba(0, 255, 80, 0.15)';
+    ctx.strokeStyle = this._alertActive ? 'rgba(255, 60, 0, 0.2)' : 'rgba(0, 255, 80, 0.15)';
     ctx.lineWidth = 0.5;
     for (let i = 1; i <= 3; i++) {
       ctx.beginPath();

@@ -50,6 +50,7 @@ export class Game {
   private cameraWorldPos = new THREE.Vector3();
   private deathSequenceActive = false;
   private deathTimeScale = 1;
+  private impactAlertActive = false;
 
   async init(): Promise<void> {
     // Rendering
@@ -97,7 +98,7 @@ export class Game {
     this.score = new ScoreSystem(this.state);
 
     // Wire up events
-    this.weapon.onKill = (scoreValue, position) => {
+    this.weapon.onKill = (scoreValue, position, droneId) => {
       this.score.addKill(scoreValue);
       this.playfunSDK?.addPoints(scoreValue);
     };
@@ -228,6 +229,9 @@ export class Game {
     this.deathSequenceActive = false;
     this.deathTimeScale = 1;
     this.audio.stopAllDroneMotors();
+    this.audio.stopImpactAlert();
+    this.impactAlertActive = false;
+    this.radar.setAlert(false);
     this.droneManager.clearAll();
     this.effects.clear();
     this.waveManager.reset();
@@ -305,6 +309,26 @@ export class Game {
           }
         }
 
+        // Impact alert — single alarm when any drone is ~4 seconds from breach
+        let anyAlerting = false;
+        for (const drone of this.droneManager.drones) {
+          if (drone.state !== 'alive') continue;
+          const zRemaining = CONFIG.drone.breachDistance - drone.position.z;
+          const zSpeed = drone.velocity.z * drone.speed;
+          if (zSpeed > 0 && zRemaining / zSpeed <= 4) {
+            anyAlerting = true;
+            break;
+          }
+        }
+        if (anyAlerting && !this.impactAlertActive) {
+          this.audio.startImpactAlert();
+          this.impactAlertActive = true;
+        } else if (!anyAlerting && this.impactAlertActive) {
+          this.audio.stopImpactAlert();
+          this.impactAlertActive = false;
+        }
+        this.radar.setAlert(anyAlerting);
+
         // Wave management
         this.waveManager.update(dt, this.elapsedTime, this.droneManager);
 
@@ -339,6 +363,9 @@ export class Game {
 
     // --- DEATH SEQUENCE ---
     this.audio.stopAllDroneMotors();
+    this.audio.stopImpactAlert();
+    this.impactAlertActive = false;
+    this.radar.setAlert(false);
 
     // Massive initial shake
     this.turret.applyShake(4.0);
